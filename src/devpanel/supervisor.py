@@ -141,6 +141,8 @@ class Supervisor:
         self._lock = threading.Lock()
         self._ncpu = psutil.cpu_count() or 1
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        # 用户手动停掉的项目：面板重启时 autostart 跳过它们，「我停的就保持停着」
+        self.manual_stopped: set[str] = set(self._load_state().get("manual_stopped", []))
 
     # ----- pids.json -----
 
@@ -148,22 +150,38 @@ class Supervisor:
     def _pids_path(self) -> Path:
         return self.state_dir / "pids.json"
 
+    def _load_state(self) -> dict:
+        """pids.json：{"procs": {id: {pid, create_time, started_at, url}}, "manual_stopped": [id]}。
+        兼容早期格式（顶层直接是 id → 记录）。"""
+        try:
+            data = json.loads(self._pids_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"procs": {}, "manual_stopped": []}
+        if "procs" not in data:
+            data = {"procs": data, "manual_stopped": []}
+        return data
+
     def _save_pids(self) -> None:
-        data = {
+        procs = {
             pid_id: {"pid": rt.pid, "create_time": rt.create_time, "started_at": rt.started_at, "url": rt.url}
             for pid_id, rt in self.runtimes.items()
             if rt.owned and rt.pid is not None and rt.exit_code is None and rt.alive()
         }
+        data = {"procs": procs, "manual_stopped": sorted(self.manual_stopped)}
         tmp = self._pids_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
         tmp.replace(self._pids_path)
 
+    def mark_manual_stop(self, project_id: str, stopped: bool) -> None:
+        if stopped:
+            self.manual_stopped.add(project_id)
+        else:
+            self.manual_stopped.discard(project_id)
+        self._save_pids()
+
     def adopt_saved(self, projects: list[Project]) -> list[str]:
         """面板重启后，把 pids.json 里还活着的进程认领回来。返回认领成功的 id。"""
-        try:
-            data = json.loads(self._pids_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+        data = self._load_state()["procs"]
         ids = {p.id for p in projects}
         adopted: list[str] = []
         for pid_id, rec in data.items():
@@ -207,6 +225,7 @@ class Supervisor:
                 rt.failures.clear()
                 rt.restart_count = 0
                 rt.crashed = False
+                self.manual_stopped.discard(project.id)
             env = {k: v for k, v in os.environ.items() if k not in STRIP_ENV}
             env["PATH"] = clean_path()
             env.update(DEFAULT_ENV)
@@ -269,6 +288,8 @@ class Supervisor:
         with rt.lock:
             self._cancel_restart(rt)
             rt.crashed = False
+            self.manual_stopped.add(project.id)
+            self._save_pids()
             if rt.alive():
                 rt.manual_stop = True
                 self.logs.get(project.id).mark("stop")

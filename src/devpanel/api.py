@@ -48,6 +48,8 @@ class PanelState:
         for p in cfg.projects:
             if not p.autostart or p.error or p.id in adopted:
                 continue
+            if p.id in self.supervisor.manual_stopped:
+                continue  # 用户面板重启前手动停的，别自作主张拉起来
             if snap.get(p.id, {}).get("status") in ("running", "starting", "external"):
                 continue
             try:

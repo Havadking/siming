@@ -17,10 +17,11 @@ export function useLogStream(url: string | null) {
     es.onopen = () => setConnected(true)
     es.onerror = () => setConnected(false)
     es.onmessage = (ev) => {
-      // 回放 200 行会瞬间来一堆事件，攒一帧再 setState
+      // 回放 200 行会瞬间来一堆事件，攒一小批再 setState。
+      // 用 setTimeout 不用 requestAnimationFrame：页面不在前台时 rAF 不触发，抽屉会一直「还没有输出」
       pending.current.push(ev.data as string)
       if (flushTimer.current == null) {
-        flushTimer.current = requestAnimationFrame(() => {
+        flushTimer.current = window.setTimeout(() => {
           flushTimer.current = null
           const batch = pending.current
           pending.current = []
@@ -28,12 +29,12 @@ export function useLogStream(url: string | null) {
             const next = prev.concat(batch)
             return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next
           })
-        })
+        }, 16)
       }
     }
     return () => {
       es.close()
-      if (flushTimer.current != null) cancelAnimationFrame(flushTimer.current)
+      if (flushTimer.current != null) clearTimeout(flushTimer.current)
       flushTimer.current = null
       setConnected(false)
     }

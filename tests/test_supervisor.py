@@ -171,3 +171,21 @@ def test_url_pattern_from_stdout(sup, tmp_path):
     assert status(sup2, p)["url"] == "http://127.0.0.1:1234/?token=abc"
     sup2.stop(p)
     assert wait_for(lambda: status(sup2, p)["url"] == "http://127.0.0.1:1234")
+
+
+def test_manual_stop_is_remembered_across_panel_restart(sup, tmp_path):
+    port = free_port()
+    p = project(tmp_path, "m", LISTEN.format(port=port), port)
+    sup.start(p)
+    assert wait_for(lambda: status(sup, p)["status"] == "running")
+    sup.stop(p)
+    assert "m" in sup.manual_stopped
+    # 「面板重启」：新 Supervisor 读同一个 state，知道这是用户停的
+    sup2 = Supervisor(tmp_path / "state", LogManager(tmp_path / "logs"))
+    assert sup2.manual_stopped == {"m"}
+    # 用户再手动启动就清掉
+    sup2.start(p)
+    assert "m" not in sup2.manual_stopped
+    sup3 = Supervisor(tmp_path / "state", LogManager(tmp_path / "logs"))
+    assert sup3.manual_stopped == set()
+    sup2.stop(p)
