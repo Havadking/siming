@@ -46,9 +46,14 @@ projects:
     restart: on-failure
     group: AI
 
-# 本地纯 HTML 单页小工具（免起后台服务，一键直达）
-tools: []
+  - id: suishi
+    name: 随拾
+    cwd: E:/personal/projects/local-video-browser
+    cmd: npm run dev                        # package.json 里 serve -l 8964，改端口两边要一起改
+    port: 8964
+    group: 常用
 
+# 本地纯 HTML 单页小工具（免起后台服务，一键直达）
 tools:
   - id: index
     name: 短视频浏览
