@@ -87,7 +87,7 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
     @app.get("/api/projects")
     def list_projects():
         cfg = state.config()
-        return {"projects": state.supervisor.snapshot(cfg.projects), "errors": cfg.errors}
+        return {"projects": state.supervisor.snapshot(cfg.projects), "errors": cfg.errors, "groups": cfg.group_order()}
 
     @app.post("/api/projects/start-all")
     def start_all():
@@ -190,6 +190,28 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
     @app.post("/api/projects/order")
     def order_projects(order: list[dict] = Body(...)):
         _edit(yamledit.reorder, order)
+        return {"ok": True}
+
+    # ----- 分组 -----
+
+    @app.post("/api/groups", status_code=201)
+    def create_group(body: dict = Body(...)):
+        _edit(yamledit.add_group, str(body.get("name", "")))
+        return {"ok": True}
+
+    @app.put("/api/groups/{name}")
+    def rename_group(name: str, body: dict = Body(...)):
+        _edit(yamledit.rename_group, name, str(body.get("name", "")))
+        return {"ok": True}
+
+    @app.delete("/api/groups/{name}")
+    def delete_group(name: str):
+        _edit(yamledit.delete_group, name)
+        return {"ok": True}
+
+    @app.post("/api/groups/order")
+    def order_groups(names: list[str] = Body(...)):
+        _edit(yamledit.reorder_groups, names)
         return {"ok": True}
 
     @app.get("/api/detect")

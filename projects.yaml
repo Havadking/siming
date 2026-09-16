@@ -3,6 +3,8 @@ panel:
   port: 9000            # 面板自己的端口
   open_browser: true    # serve 时顺手开浏览器
 
+groups: [常用, 监控]
+
 projects:
   - id: vsum
     name: 拾光笺

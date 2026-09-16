@@ -100,3 +100,17 @@ def test_detect_endpoint(env, tmp_path):
     (tmp_path / "package.json").write_text('{"name":"x","scripts":{"dev":"vite --port 5199"}}')
     d = client.get("/api/detect", params={"cwd": str(tmp_path)}).json()
     assert d["cmd"] == "npm run dev" and d["port"] == 5199
+
+
+def test_groups_endpoints(env):
+    client, yml, _ = env
+    assert client.post("/api/groups", json={"name": "G"}).status_code == 201
+    assert client.get("/api/projects").json()["groups"] == ["G"]
+    assert client.post("/api/groups", json={"name": "G"}).status_code == 409
+    assert client.put("/api/groups/G", json={"name": "H"}).status_code == 200
+    assert client.post("/api/groups", json={"name": "I"}).status_code == 201
+    assert client.post("/api/groups/order", json=["I", "H"]).status_code == 200
+    assert client.get("/api/projects").json()["groups"] == ["I", "H"]
+    assert client.delete("/api/groups/H").status_code == 200
+    assert client.delete("/api/groups/H").status_code == 404
+    assert client.get("/api/projects").json()["groups"] == ["I"]

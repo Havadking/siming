@@ -140,3 +140,21 @@ def test_url_pattern_validation(tmp_path):
     assert ok.error is None and ok.url_pattern.pattern == r"web: (http\S+)"
     assert "捕获组" in nogroup.error
     assert "不是合法正则" in broken.error
+
+
+def test_groups_order(tmp_path):
+    p = write(tmp_path, f"""
+    groups: [b, a, empty]
+    projects:
+      - id: x
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        group: a
+      - id: y
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        group: c
+    """)
+    cfg = load(p)
+    assert cfg.groups == ["b", "a", "empty"]
+    assert cfg.group_order() == ["b", "a", "empty", "c"]   # 没列的补在后面

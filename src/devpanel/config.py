@@ -75,10 +75,19 @@ class Config:
     errors: list[str]          # 全局错误（文件本身坏了、重复 id 之类）
     path: Path
     mtime: float
+    groups: list[str] = field(default_factory=list)   # 顶层 groups: 列表；决定顺序，允许空组
 
     @property
     def base_dir(self) -> Path:
         return self.path.parent
+
+    def group_order(self) -> list[str]:
+        """分组的展示顺序：groups: 里列的在前，项目里出现但没列的按首次出现补在后面。"""
+        seen = list(self.groups)
+        for p in self.projects:
+            if p.group and p.group not in seen:
+                seen.append(p.group)
+        return seen
 
 
 def _split_cmd(cmd: str) -> list[str]:
@@ -217,6 +226,16 @@ def load(path: Path) -> Config:
         open_browser=bool(panel_raw.get("open_browser", True)),
     )
 
+    groups: list[str] = []
+    raw_groups = data.get("groups") or []
+    if not isinstance(raw_groups, list):
+        errors.append("groups 必须是列表")
+    else:
+        for g in raw_groups:
+            name = str(g).strip() if g is not None else ""
+            if name and name not in groups:
+                groups.append(name)
+
     projects: list[Project] = []
     raw_list = data.get("projects") or []
     if not isinstance(raw_list, list):
@@ -249,7 +268,7 @@ def load(path: Path) -> Config:
                 x.error = f"{x.error}；{msg}" if x.error else msg
             errors.append(f"port {port} 被多个项目使用：{names}")
 
-    return Config(panel, projects, errors, path, mtime)
+    return Config(panel, projects, errors, path, mtime, groups)
 
 
 KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "env_file", "env")

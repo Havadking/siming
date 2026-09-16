@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ChevronDown, Moon, Play, Plus, Square, Sun } from 'lucide-react'
+import { AlertTriangle, Moon, Play, Plus, Square, Sun } from 'lucide-react'
 import { api, type Project } from './api'
+import { GroupHeader, NewGroupRow } from './components/GroupHeader'
 import { LogDrawer } from './components/LogDrawer'
 import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard'
 import { ProjectDialog } from './components/ProjectDialog'
@@ -208,8 +209,10 @@ export default function App() {
     document.title = data ? `${online}/${projects.length} 在线 · 司命` : '司命'
   }, [data, online, projects.length])
 
+  const groupNames = useMemo(() => data?.groups ?? [], [data])
   const groups = useMemo(() => {
     const m = new Map<string, Project[]>()
+    for (const g of groupNames) m.set(g, [])          // 空组也要有标题
     for (const p of projects) {
       const g = p.group ?? ''
       if (!m.has(g)) m.set(g, [])
@@ -217,10 +220,31 @@ export default function App() {
     }
     const named = [...m.entries()].filter(([g]) => g)
     const rest = m.get('')
-    if (rest) named.push([OTHER, rest])
+    if (rest && rest.length) named.push([OTHER, rest])
     return named
-  }, [projects])
-  const groupNames = useMemo(() => groups.map(([g]) => g).filter((g) => g !== OTHER), [groups])
+  }, [projects, groupNames])
+  const showHeaders = groups.some(([g]) => g !== OTHER)
+
+  // ----- 分组管理 -----
+  const [groupErr, setGroupErr] = useState<string | null>(null)
+  const groupOp = useCallback(async (fn: () => Promise<unknown>) => {
+    setGroupErr(null)
+    try { await fn(); await refresh() } catch (e) { setGroupErr(e instanceof Error ? e.message : String(e)) }
+  }, [refresh])
+  const moveGroup = useCallback((name: string, dir: -1 | 1) => {
+    const names = groups.map(([g]) => g).filter((g) => g !== OTHER)
+    const i = names.indexOf(name)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= names.length) return
+    const next = names.slice()
+    ;[next[i], next[j]] = [next[j], next[i]]
+    void groupOp(() => api.orderGroups(next))
+  }, [groups, groupOp])
+  const deleteGroup = useCallback((name: string, n: number) => {
+    const msg = n ? `删除分组「${name}」？里面的 ${n} 个项目会归到「其他」。` : `删除空分组「${name}」？`
+    if (!confirm(msg)) return
+    void groupOp(() => api.deleteGroup(name))
+  }, [groupOp])
 
   const logProject = logId ? projects.find((p) => p.id === logId) ?? null : null
   useEffect(() => { if (logId && data && !logProject) setLogId(null) }, [logId, data, logProject])
@@ -244,6 +268,7 @@ export default function App() {
       </header>
 
       {pollError && <div className="banner bad"><AlertTriangle />连不上面板：{pollError}</div>}
+      {groupErr && <div className="banner bad"><AlertTriangle />{groupErr}</div>}
       {cfgErrors.length > 0 && (
         <div className="banner warn">
           <AlertTriangle />
@@ -256,20 +281,21 @@ export default function App() {
           <div className="empty"><b>清单是空的</b>点右上角「新增」，或在 <code>projects.yaml</code> 里加项目。</div>
         )}
         <div className="grid">
-          {groups.flatMap(([g, ps]) => {
+          {groups.flatMap(([g, ps], gi) => {
             const groupKey = g === OTHER ? null : g
-            const isCollapsed = groups.length > 1 && collapsed.has(g) && !dragId
+            const isCollapsed = showHeaders && collapsed.has(g) && !dragId
             const liveN = ps.filter((p) => p.status === 'running' || p.status === 'external').length
             const items: ReactNode[] = []
-            if (groups.length > 1) {
+            if (showHeaders) {
+              const namedN = groups.filter(([x]) => x !== OTHER).length
               items.push(
-                <button key={`h:${g}`} type="button" className={`gtitle${isCollapsed ? ' closed' : ''}${dragId ? ' dropzone' : ''}`}
-                  onClick={() => toggleGroup(g)} aria-expanded={!isCollapsed}
-                  onDragEnter={dragId ? (e) => { e.preventDefault(); dragOverGroup(groupKey) } : undefined}
-                  onDragOver={dragId ? (e) => { e.preventDefault() } : undefined}>
-                  <ChevronDown />{g}
-                  <span className="gsum">{isCollapsed ? `${ps.length} 个 · 在线 ${liveN}` : ps.length}</span>
-                </button>,
+                <GroupHeader key={`h:${g}`} name={g} count={ps.length} liveN={liveN} collapsed={isCollapsed}
+                  isOther={g === OTHER} canUp={gi > 0} canDown={gi < namedN - 1} dropzone={!!dragId}
+                  onToggle={() => toggleGroup(g)}
+                  onRename={(v) => { void groupOp(() => api.renameGroup(g, v)) }}
+                  onMove={(dir) => moveGroup(g, dir)}
+                  onDelete={() => deleteGroup(g, ps.length)}
+                  onDragEnter={() => dragOverGroup(groupKey)} />,
               )
             }
             if (!isCollapsed) {
@@ -291,6 +317,7 @@ export default function App() {
             }
             return items
           })}
+          {data && !dragId && <NewGroupRow onCreate={(name) => { void groupOp(() => api.addGroup(name)) }} />}
         </div>
       </main>
 

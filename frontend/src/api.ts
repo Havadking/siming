@@ -32,6 +32,7 @@ export interface Project {
 export interface ProjectsResponse {
   projects: Project[]
   errors: string[]
+  groups: string[]          // 分组顺序（含空组）
 }
 
 /** 表单里的一个项目，形状就是 projects.yaml 里的一项。空字符串 = 不写。 */
@@ -105,6 +106,10 @@ export const api = {
   update: (id: string, p: ProjectForm) => json<{ id: string; soft: string[] }>(`/api/projects/${id}`, 'PUT', p),
   remove: (id: string) => req<unknown>(`/api/projects/${id}`, { method: 'DELETE' }),
   order: (order: { id: string; group: string | null }[]) => json<unknown>('/api/projects/order', 'POST', order),
+  addGroup: (name: string) => json<unknown>('/api/groups', 'POST', { name }),
+  renameGroup: (old: string, name: string) => json<unknown>(`/api/groups/${encodeURIComponent(old)}`, 'PUT', { name }),
+  deleteGroup: (name: string) => req<unknown>(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  orderGroups: (names: string[]) => json<unknown>('/api/groups/order', 'POST', names),
   detect: (cwd: string) => req<Detected>(`/api/detect?cwd=${encodeURIComponent(cwd)}`),
   pickFolder: (initial: string | null) => json<{ path: string | null; detected: Detected | null }>('/api/pick-folder', 'POST', { initial }),
 }

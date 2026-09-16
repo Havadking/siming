@@ -39,7 +39,7 @@
 - **面板重启不带走项目**：pid + create_time 记在 `state/pids.json`，面板改完代码重启，项目一个不掉，状态全部认领回来。
 - **开机自启**：一条命令注册登录时任务计划，面板和标了 `autostart` 的项目跟着起，没有任何窗口弹出。
 - **配置即文件**：`projects.yaml` 改完保存即生效，不用重启面板。
-- **不用碰文件也行**（v0.2）：页面上「新增 / 编辑 / 删除」直接写回 `projects.yaml`，注释和顺序原样保留。选一个目录，看到 `package.json` / `pyproject.toml` 自动填好命令、端口、名字。卡片可以拖着排序、拖到别的组；组标题点一下折叠。
+- **不用碰文件也行**（v0.2）：页面上「新增 / 编辑 / 删除」直接写回 `projects.yaml`，注释和顺序原样保留。选一个目录，看到 `package.json` / `pyproject.toml` 自动填好命令、端口、名字。卡片可以拖着排序、拖到别的组；组标题点一下折叠，⋯ 里改名 / 上下移 / 删除，底部「新建分组」。
 
 ## 它不做什么
 
@@ -64,6 +64,8 @@ uv run devpanel serve
 panel:
   port: 9000            # 面板自己的端口
   open_browser: true    # serve 时顺手开浏览器
+
+groups: [常用, 监控]     # 可省。分组的显示顺序；允许空组；项目里出现但没列的自动补在后面
 
 projects:
   - id: vsum                        # 唯一，[a-z0-9-]，用于 URL 和日志文件名
@@ -138,6 +140,7 @@ uv run devpanel uninstall-startup    # 删掉
 | POST | `/api/projects` · PUT / DELETE `/api/projects/{id}` | 写回 `projects.yaml`；删除时在跑的返回 409 |
 | POST | `/api/projects/validate` | 表单干跑校验，`{hard, soft}`：硬错误挡保存，软错误只是卡片标红 |
 | POST | `/api/projects/order` | `[{id, group}]`，拖拽后重排 / 换组 |
+| POST | `/api/groups` · PUT / DELETE `/api/groups/{name}` · POST `/api/groups/order` | 分组：新建、改名（改成已有的名字 = 合并）、删除（项目归到「其他」）、排序 |
 | GET | `/api/detect?cwd=` | 从目录猜名字、id、命令、端口 |
 | POST | `/api/pick-folder` | 弹系统「选择文件夹」对话框 |
 | GET | `/api/config` · POST `/api/config/reload` | |

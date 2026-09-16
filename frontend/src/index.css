@@ -79,13 +79,23 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .top .stats b { color: var(--ink-2); font-weight: 500; }
 .page { max-width: 1280px; width: 100%; margin: 0 auto; padding: 20px 24px 60px; }
 /* 组标题和卡片在同一张 grid 里（占整行），卡片换组时 DOM 不重建，拖拽才能正常结束 */
-.gtitle { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; margin: 14px 2px -2px; padding: 3px 6px 3px 2px; border-radius: 6px; border: 1px dashed transparent; align-self: start; }
+.gtitle { grid-column: 1 / -1; display: flex; align-items: center; gap: 5px; min-height: 26px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; margin: 14px 2px -2px; padding: 0 4px 0 2px; border-radius: 6px; border: 1px dashed transparent; align-self: start; }
 .gtitle:first-child { margin-top: 0; }
-.gtitle:hover { color: var(--ink-2); }
-.gtitle svg { width: 13px; height: 13px; transition: transform .15s; }
-.gtitle.closed svg { transform: rotate(-90deg); }
+.gtitle .gtoggle { display: inline-flex; align-items: center; gap: 5px; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 3px 4px 3px 0; }
+.gtitle:hover, .gtitle .gtoggle:hover { color: var(--ink-2); }
+.gtitle .gtoggle svg { width: 13px; height: 13px; transition: transform .15s; }
+.gtitle.closed .gtoggle svg { transform: rotate(-90deg); }
 .gtitle .gsum { color: var(--faint); letter-spacing: 0; text-transform: none; font-weight: 400; margin-left: 4px; }
+.gtitle .gmenu { opacity: 0; transition: opacity .15s; }
+.gtitle:hover .gmenu, .gtitle .gmenu:focus-within { opacity: 1; }
+.gtitle .gmenu .btn { height: 22px; width: 22px; }
+.gtitle .gmenu .menu-pop { right: auto; left: 0; }
 .gtitle.dropzone { border-color: var(--accent-line); color: var(--accent-ink); }
+.gtitle .ginput { height: 24px; padding: 0 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--ink); font: 13px/1 inherit; font-family: inherit; letter-spacing: 0; text-transform: none; min-width: 180px; }
+.gtitle .ginput:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.gtitle.newgroup { margin-top: 18px; gap: 6px; padding: 3px 6px; border-color: var(--line); color: var(--faint); cursor: pointer; }
+.gtitle.newgroup:hover { color: var(--ink-2); border-color: var(--faint); }
+.gtitle.newgroup svg { width: 13px; height: 13px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 
 .banner { display: flex; align-items: flex-start; gap: 8px; margin: 12px 24px 0; padding: 9px 14px; border-radius: 8px; font-size: 13px; }

@@ -139,3 +139,38 @@ def test_refuses_broken_top_level(tmp_path):
     p.write_text("- just\n- a list\n", encoding="utf-8")
     with pytest.raises(Y.EditError):
         Y.add_project(p, {"id": "x", "cwd": "E:/x", "cmd": "npm start"})
+
+
+def test_groups_add_rename_delete_reorder(yml):
+    Y.add_group(yml, "新组")
+    data = load(yml)
+    assert data["groups"] == ["常用", "监控", "新组"]         # 没有 groups: 时按项目里的出现顺序建
+    text = yml.read_text(encoding="utf-8")
+    assert text.index("groups:") < text.index("projects:")     # 插在 projects 前面
+    assert "groups: [" in text                                  # 一行流式写法
+    assert "# 行尾注释" in text
+
+    Y.rename_group(yml, "监控", "监视")
+    data = load(yml)
+    assert data["groups"] == ["常用", "监视", "新组"]
+    assert data["projects"][1]["group"] == "监视"
+
+    Y.rename_group(yml, "监视", "常用")                          # 改成已有的名字 = 合并
+    data = load(yml)
+    assert data["groups"] == ["常用", "新组"]
+    assert data["projects"][1]["group"] == "常用"
+
+    Y.reorder_groups(yml, ["新组", "常用"])
+    assert load(yml)["groups"] == ["新组", "常用"]
+
+    Y.delete_group(yml, "常用")
+    data = load(yml)
+    assert data["groups"] == ["新组"]
+    assert all("group" not in p for p in data["projects"])
+
+    with pytest.raises(Y.EditError):
+        Y.add_group(yml, "新组")
+    with pytest.raises(Y.EditError):
+        Y.add_group(yml, "  ")
+    with pytest.raises(Y.EditError):
+        Y.rename_group(yml, "nope", "x")

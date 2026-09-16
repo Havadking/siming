@@ -117,6 +117,8 @@ def _tidy_blank_lines(text: str, uses_blank: bool) -> str:
             prev = out[-1]
             if uses_blank and prev != "" and not prev.rstrip().endswith(":") and not prev.lstrip().startswith("#"):
                 out.append("")
+        elif ln == "projects:" and out and out[-1] != "" and not out[-1].lstrip().startswith("#"):
+            out.append("")   # groups: [..] 和 projects: 之间空一行
         if ln == "" and out and out[-1] == "":
             continue   # 连续空行压成一个
         out.append(ln)
@@ -201,6 +203,92 @@ def delete_project(path: Path, project_id: str) -> None:
         del seq[i]
         # 跟在被删项后面的注释会挂在它的索引上，一并去掉
         seq.ca.items.pop(i, None)
+        _dump(y, data, path)
+
+
+# ----- 分组 -----
+
+def _implicit_groups(seq: CommentedSeq) -> list[str]:
+    out: list[str] = []
+    for item in seq:
+        if isinstance(item, dict):
+            g = str(item.get("group") or "").strip()
+            if g and g not in out:
+                out.append(g)
+    return out
+
+
+def _groups_seq(data: CommentedMap, seq: CommentedSeq) -> CommentedSeq:
+    """拿到顶层 groups: 列表；没有就按项目里的出现顺序建一个，插在 projects 前面。"""
+    gs = data.get("groups")
+    if isinstance(gs, CommentedSeq):
+        return gs
+    gs = CommentedSeq(_implicit_groups(seq))
+    gs.fa.set_flow_style()   # 写成一行 [a, b, c]
+    keys = list(data.keys())
+    pos = keys.index("projects") if "projects" in keys else len(keys)
+    data.insert(pos, "groups", gs)
+    return gs
+
+
+def add_group(path: Path, name: str) -> None:
+    name = name.strip()
+    if not name:
+        raise EditError(422, "分组名不能为空")
+    with _lock:
+        y, data, seq = _load(path)
+        gs = _groups_seq(data, seq)
+        if name in gs:
+            raise EditError(409, f"已有分组：{name}")
+        gs.append(name)
+        _dump(y, data, path)
+
+
+def rename_group(path: Path, old: str, new: str) -> None:
+    """改名；改成已有的名字就是合并。"""
+    new = new.strip()
+    if not new:
+        raise EditError(422, "分组名不能为空")
+    with _lock:
+        y, data, seq = _load(path)
+        gs = _groups_seq(data, seq)
+        if old not in gs:
+            raise EditError(404, f"没有这个分组：{old}")
+        if new == old:
+            return
+        if new in gs:
+            del gs[gs.index(old)]
+        else:
+            gs[gs.index(old)] = new
+        for item in seq:
+            if isinstance(item, dict) and str(item.get("group") or "").strip() == old:
+                item["group"] = new
+        _dump(y, data, path)
+
+
+def delete_group(path: Path, name: str) -> None:
+    """删掉分组；里面的项目去掉 group，归到「其他」。"""
+    with _lock:
+        y, data, seq = _load(path)
+        gs = _groups_seq(data, seq)
+        if name not in gs:
+            raise EditError(404, f"没有这个分组：{name}")
+        del gs[gs.index(name)]
+        for item in seq:
+            if isinstance(item, dict) and str(item.get("group") or "").strip() == name:
+                del item["group"]
+        _dump(y, data, path)
+
+
+def reorder_groups(path: Path, names: list[str]) -> None:
+    with _lock:
+        y, data, seq = _load(path)
+        gs = _groups_seq(data, seq)
+        cur = list(gs)
+        wanted = [n for n in names if n in cur]
+        wanted += [n for n in cur if n not in wanted]
+        del gs[:]
+        gs.extend(wanted)
         _dump(y, data, path)
 
 
