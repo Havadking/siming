@@ -171,8 +171,9 @@ class Supervisor:
             return rt
 
     def start(self, project: Project, *, auto: bool = False) -> None:
-        if project.error:
-            raise ActionError(400, f"配置错误：{project.error}")
+        err = project.runtime_error()
+        if err:
+            raise ActionError(400, f"配置错误：{err}")
         rt = self._rt(project.id)
         with rt.lock:
             if rt.alive():
@@ -366,8 +367,10 @@ class Supervisor:
             rt = self.runtimes.get(p.id)
             port_pid = ports.get(p.port) if p.port else None
             port_open = port_pid is not None
+            err = p.runtime_error()
             d: dict = {
                 **p.to_dict(),
+                "error": err,
                 "status": "stopped", "pid": None, "uptime": None, "rss": None, "cpu": None,
                 "restart_count": rt.restart_count if rt else 0,
                 "exit_code": rt.exit_code if rt else None,
@@ -375,7 +378,7 @@ class Supervisor:
                 "restart_due": None, "failures": len(rt.failures) if rt else 0,
                 "logs_available": bool(rt and rt.owned),
             }
-            if p.error:
+            if err:
                 d["status"] = "error"
             elif rt and rt.alive():
                 d["pid"] = rt.pid

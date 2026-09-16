@@ -107,7 +107,10 @@ def test_env_file(tmp_path):
     assert e.error is None and e.env_file == tmp_path / ".env"
     from devpanel.config import read_env_file
     assert read_env_file(e.env_file) == {"A": "1", "B": "two words", "C": "3"}
-    assert "env_file 不存在" in missing.error
+    assert missing.error is None                       # 读 yaml 时不查
+    assert "env_file 不存在" in missing.runtime_error()  # 用的时候查
+    (tmp_path / "nope.env").write_text("", encoding="utf-8")
+    assert missing.runtime_error() is None             # 建了文件不用重载 yaml
 
 
 def test_clean_path_drops_own_venv():

@@ -141,3 +141,16 @@ def test_env_file_and_clean_path_reach_child(sup, tmp_path):
     sup.start(p)
     assert wait_for(lambda: status(sup, p)["status"] == "stopped")
     assert sup.logs.get("g").tail(2)[0] == "yes from-yaml False"
+
+
+def test_missing_env_file_blocks_start_until_created(sup, tmp_path):
+    p = project(tmp_path, "h", "print('hi', flush=True)", None)
+    p.env_file = tmp_path / "later.env"
+    assert status(sup, p)["status"] == "error"
+    with pytest.raises(ActionError) as ei:
+        sup.start(p)
+    assert ei.value.status == 400
+    (tmp_path / "later.env").write_text("X=1\n", encoding="utf-8")
+    assert status(sup, p)["status"] == "stopped"   # 不用重载配置
+    sup.start(p)
+    assert wait_for(lambda: status(sup, p)["status"] == "stopped" and status(sup, p)["exit_code"] == 0)

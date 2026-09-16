@@ -35,6 +35,14 @@ class Project:
     argv: list[str] = field(default_factory=list)   # 解析好的命令，argv[0] 已经是绝对路径
     error: str | None = None                        # 配置错误原因；非空则不允许启动
 
+    def runtime_error(self) -> str | None:
+        """静态校验错误 + 每次现查的错误（env_file 是否存在）。"""
+        if self.error:
+            return self.error
+        if self.env_file and not self.env_file.is_file():
+            return f"env_file 不存在：{self.env_file}"
+        return None
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -166,9 +174,7 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
         ef = Path(str(raw["env_file"])).expanduser()
         if not ef.is_absolute():
             ef = cwd / ef
-        p.env_file = ef
-        if not ef.is_file():
-            problems.append(f"env_file 不存在：{ef}")
+        p.env_file = ef   # 存不存在不在这里查：建 .env 不会改 yaml 的 mtime，放到 snapshot/start 时现查
     if p.url is None and p.port is not None:
         p.url = f"http://127.0.0.1:{p.port}"
     if problems:
