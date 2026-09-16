@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, Code2, ExternalLink, FolderOpen, Loader2, Plus, X } from 'lucide-react'
 import { api, type Tool } from '../api'
 import { Button } from './ui'
@@ -178,9 +179,32 @@ function AddToolDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     }
   }
 
-  return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="card modal" style={{ width: 460 }} onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <div
+      className="modal-bg"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px 16px',
+        overflowY: 'auto',
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="card modal"
+        style={{
+          width: 480,
+          maxWidth: '100%',
+          maxHeight: '90vh',
+          boxShadow: 'var(--shadow)',
+          margin: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mhead">
           <h2>添加本地 HTML 小工具</h2>
           <button type="button" className="btn ghost sm iconbtn" onClick={onClose} aria-label="关闭">
@@ -249,6 +273,7 @@ function AddToolDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
