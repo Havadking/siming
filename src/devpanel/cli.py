@@ -84,8 +84,9 @@ def _pythonw() -> Path:
 
 def _task_xml(cfg_path: Path) -> str:
     """任务计划的 XML。用 XML 而不是 schtasks 参数，因为要关掉 72 小时执行上限和电池条件。"""
-    cmd = str(_pythonw())
-    args = f'-m devpanel serve --no-browser --config "{cfg_path}"'
+    argv = _serve_argv(cfg_path)
+    cmd = argv[0]
+    args = subprocess.list2cmdline(argv[1:])
     user = f"{os.environ.get('USERDOMAIN', '')}\\{getpass.getuser()}"
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -130,6 +131,90 @@ def _task_xml(cfg_path: Path) -> str:
   </Actions>
 </Task>
 """
+
+
+def _panel_pid(port: int) -> int | None:
+    import psutil
+
+    for c in psutil.net_connections("tcp"):
+        if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
+            return c.pid
+    return None
+
+
+def _wait(pred, timeout: float) -> bool:
+    import time
+
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if pred():
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _serve_argv(cfg_path: Path) -> list[str]:
+    return [str(_pythonw()), "-m", "devpanel", "serve", "--no-browser", "--config", str(cfg_path)]
+
+
+@main.command()
+@click.option("--config", "config_path", type=click.Path(), default=None, help="projects.yaml 路径")
+def restart(config_path: str | None) -> None:
+    """重启面板本身（改了面板代码之后用）。项目不受影响，重启后按 state/pids.json 认领回来。"""
+    import psutil
+
+    from .config import load
+    from .supervisor import spawn_detached
+
+    cfg_path = _find_config(config_path)
+    port = load(cfg_path).panel.port
+    pid = _panel_pid(port)
+    if pid:
+        p = psutil.Process(pid)
+        click.echo(f"停掉旧面板 pid {pid}（{p.name()}）…")
+        # 只杀面板这一个进程，不碰它的子进程——子项目已经 breakaway 出了 Job，会被新面板认领
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except psutil.TimeoutExpired:
+            p.kill()
+        if not _wait(lambda: _panel_pid(port) is None, 10):
+            raise click.ClickException(f"端口 {port} 迟迟不释放，放弃")
+    else:
+        click.echo("面板没在跑，直接起。")
+
+    log_dir = cfg_path.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_dir / "devpanel.log", "ab") as out:
+        spawn_detached(_serve_argv(cfg_path), cwd=str(cfg_path.parent),
+                       stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, close_fds=True)
+    if _wait(lambda: _panel_pid(port) is not None, 20):
+        click.echo(f"面板已重启：http://127.0.0.1:{port}（pid {_panel_pid(port)}）")
+    else:
+        raise click.ClickException(f"20 秒内 {port} 没起来，看 {log_dir / 'devpanel.log'}")
+
+
+@main.command()
+@click.option("--config", "config_path", type=click.Path(), default=None, help="projects.yaml 路径")
+def stop(config_path: str | None) -> None:
+    """停掉面板本身。项目继续跑，下次面板起来再认领。"""
+    import psutil
+
+    from .config import load
+
+    cfg_path = _find_config(config_path)
+    port = load(cfg_path).panel.port
+    pid = _panel_pid(port)
+    if not pid:
+        click.echo("面板没在跑。")
+        return
+    p = psutil.Process(pid)
+    p.terminate()
+    try:
+        p.wait(timeout=5)
+    except psutil.TimeoutExpired:
+        p.kill()
+    click.echo(f"已停掉面板 pid {pid}。项目不受影响。")
 
 
 @main.command("install-startup")

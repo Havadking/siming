@@ -25,6 +25,7 @@ MAX_RESTARTS = 5             # 最多自动重启 5 次，第 6 次失败 → cr
 TERMINATE_WAIT = 3.0
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+CREATE_BREAKAWAY_FROM_JOB = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
 DEFAULT_ENV = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "FORCE_COLOR": "0", "NO_COLOR": "1"}
 # 面板自己是 `uv run` 起的，这些变量指向面板的 .venv，传给子项目会让它的 uv / python 认错环境
 STRIP_ENV = ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "PYTHONHOME", "PYTHONPATH")
@@ -86,6 +87,22 @@ def listening_ports() -> dict[int, int]:
         if c.status == psutil.CONN_LISTEN and c.laddr:
             out.setdefault(c.laddr.port, c.pid or 0)
     return out
+
+
+def spawn_detached(argv: list[str], **kw) -> subprocess.Popen:
+    """spawn 子进程：无窗口、独立进程组、并且脱离面板所在的 Job Object。
+
+    任务计划起的面板在 Task Scheduler 的 Job 里，子进程默认继承。不脱离的话：
+    `schtasks /End` 会连子项目一起杀；只杀面板进程时子项目还占着 Job，任务一直「Running」，
+    再 `/Run` 会被忽略。Job 不允许 breakaway 时（ERROR_ACCESS_DENIED）退回不带这个标志。
+    """
+    base = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    try:
+        return subprocess.Popen(argv, creationflags=base | CREATE_BREAKAWAY_FROM_JOB, **kw)
+    except OSError as e:
+        if getattr(e, "winerror", None) != 5 or not CREATE_BREAKAWAY_FROM_JOB:
+            raise
+        return subprocess.Popen(argv, creationflags=base, **kw)
 
 
 def kill_tree(pid: int) -> None:
@@ -202,10 +219,9 @@ class Supervisor:
             log.mark("start" if not auto else f"auto restart #{rt.restart_count}")
             log.append(f"$ {project.cmd}")
             try:
-                proc = subprocess.Popen(
+                proc = spawn_detached(
                     project.argv, cwd=str(project.cwd), env=env,
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
                 )
             except OSError as e:
                 log.append(f"[devpanel] 启动失败：{e}")

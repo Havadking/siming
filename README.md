@@ -104,14 +104,21 @@ projects:
 - `npx` 项目加 `-y`：包没缓存时 npx 会问「要装吗」，面板给子进程的 stdin 是空的，会卡死在那里。
 - `uv` 项目请写 `--no-sync`：项目常驻时 `uv sync` 会失败，要改依赖先在面板里停掉它。
 
-## 开机自启
+## 面板自己的启停
 
 ```bash
-uv run devpanel install-startup      # 注册「登录时」任务计划
+uv run devpanel serve                # 前台起，Ctrl+C 停
+uv run devpanel restart              # 重启面板本身（改了面板代码之后用）；项目不受影响，重启后认领回来
+uv run devpanel stop                 # 停掉面板；项目继续跑
+uv run devpanel install-startup      # 注册「登录时」任务计划，后台无窗口起
 uv run devpanel uninstall-startup    # 删掉
 ```
 
 用任务计划而不是 Windows 服务：服务跑在 Session 0，起的子进程没有桌面，「打开目录」「在 VS Code 打开」都打不开。任务用 `pythonw` 起，没有窗口；XML 里关掉了 72 小时执行上限和电池条件。
+
+**别用 `schtasks /End` 停面板**：任务计划把面板放在一个 Job Object 里，`/End` 会把 Job 里的进程全杀。面板 spawn 子项目时已经用 `CREATE_BREAKAWAY_FROM_JOB` 让它们脱离了 Job，所以 `devpanel restart` / `stop` 只动面板这一个进程；但 `/End` 仍然是错误的工具。
+
+面板常驻时 `uv run` 会因为 `devpanel.exe` 被占用而重装失败，改面板代码后用 `uv run --no-sync devpanel restart`，改面板**依赖**要先 `devpanel stop`。
 
 ## 状态一览
 
@@ -157,7 +164,7 @@ src/devpanel/
   supervisor.py   Runtime + 状态机 + 杀树 + 退避重启 + 认领
   logs.py         滚动文件 + 环形缓冲 + SSE 订阅
   api.py          FastAPI 路由 + 静态前端
-  cli.py          serve / install-startup / uninstall-startup
+  cli.py          serve / restart / stop / install-startup / uninstall-startup
   web/dist/       前端构建产物，随包走
 frontend/         React + Vite + Tailwind 4 + lucide
 tests/
