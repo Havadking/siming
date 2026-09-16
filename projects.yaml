@@ -48,3 +48,8 @@ projects:
 
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
 tools: []
+
+tools:
+  - id: index
+    name: 短视频浏览
+    file: E:\personal\projects\local-video-browser\index.html

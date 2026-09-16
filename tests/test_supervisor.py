@@ -56,7 +56,8 @@ def test_start_running_stop(sup, tmp_path):
     assert wait_for(lambda: status(sup, p)["status"] == "running")
     d = status(sup, p)
     assert d["pid"] and d["rss"] > 0 and d["uptime"] >= 0
-    assert sup.logs.get("a").tail(1) == ["up"]
+    assert wait_for(lambda: sup.logs.get("a").tail(1) == ["up"])
+    assert sup.runtimes["a"].proc.stdout is None   # stdout 是文件不是管道，面板死了它也不会 EPIPE
     with pytest.raises(ActionError) as ei:
         sup.start(p)
     assert ei.value.status == 409
@@ -140,7 +141,7 @@ def test_env_file_and_clean_path_reach_child(sup, tmp_path):
     p.env = {"OVERRIDE": "from-yaml"}
     sup.start(p)
     assert wait_for(lambda: status(sup, p)["status"] == "stopped")
-    assert sup.logs.get("g").tail(2)[0] == "yes from-yaml False"
+    assert wait_for(lambda: "yes from-yaml False" in sup.logs.get("g").tail(3))
 
 
 def test_missing_env_file_blocks_start_until_created(sup, tmp_path):

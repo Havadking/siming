@@ -336,6 +336,23 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
         os.startfile(str(path))  # type: ignore[attr-defined]
         return {"ok": True}
 
+    # ----- 面板自己 -----
+
+    panel_started = time.time()
+
+    @app.get("/api/panel")
+    def panel_info():
+        return {"pid": os.getpid(), "started_at": panel_started, "version": __version__}
+
+    @app.post("/api/panel/restart")
+    def panel_restart():
+        """一键自我重启：拉起脱离的助手进程，先把响应发回去，助手半秒后来杀我们、再重起。"""
+        from .cli import spawn_self_restart
+
+        cfg_path = state.watcher.path
+        threading.Timer(0.5, spawn_self_restart, args=(cfg_path,)).start()
+        return {"ok": True, "pid": os.getpid()}
+
     # ----- 配置 -----
 
     @app.get("/api/config")

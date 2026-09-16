@@ -102,6 +102,9 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .banner svg { width: 15px; height: 15px; flex: none; margin-top: 2px; }
 .banner.warn { background: var(--warn-bg); color: var(--warn); }
 .banner.bad { background: var(--bad-bg); color: var(--bad); }
+.banner.info { background: var(--info-bg); color: var(--info); align-items: center; }
+.banner code { background: color-mix(in srgb, currentColor 12%, transparent); color: inherit; }
+.spin-icon, .iconbtn.spinning svg { animation: spin 1s linear infinite; }
 .banner ul { margin: 4px 0 0; padding-left: 18px; }
 
 /* ---------- 状态点 ---------- */

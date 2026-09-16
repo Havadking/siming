@@ -11,13 +11,14 @@ import os
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import psutil
 
 from .config import Project, clean_path, read_env_file
-from .logs import LogManager, decode
+from .logs import LogManager
 
 STARTING_GRACE = 60          # 进程活着但端口不通，超过这个秒数标 unhealthy
 FAIL_WINDOW = 600            # 10 分钟内
@@ -26,7 +27,7 @@ TERMINATE_WAIT = 3.0
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 CREATE_BREAKAWAY_FROM_JOB = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-DEFAULT_ENV = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "FORCE_COLOR": "0", "NO_COLOR": "1"}
+DEFAULT_ENV = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "FORCE_COLOR": "0", "NO_COLOR": "1"}
 # 面板自己是 `uv run` 起的，这些变量指向面板的 .venv，传给子项目会让它的 uv / python 认错环境
 STRIP_ENV = ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "PYTHONHOME", "PYTHONPATH")
 
@@ -58,6 +59,7 @@ class Runtime:
     restart_due: float | None = None          # 正在退避，什么时候重启
     crashed: bool = False
     url: str | None = None                    # 从日志里按 url_pattern 捞到的地址，比配置里的 url 优先
+    unwatch: Callable[[], None] | None = None  # 取消 url_pattern 的日志监听
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def alive(self) -> bool:
@@ -216,16 +218,24 @@ class Supervisor:
                     log.append(f"[devpanel] 读 env_file 失败：{e}")
                     raise ActionError(500, f"读 env_file 失败：{e}") from e
             env.update(project.env)
+            log.rotate_if_needed()
             log.mark("start" if not auto else f"auto restart #{rt.restart_count}")
             log.append(f"$ {project.cmd}")
+            # stdout 直接追加写日志文件，不走管道：面板重启不会断掉它（管道一断 Node 会 EPIPE 崩）
+            try:
+                out = log.open_for_child()
+            except OSError as e:
+                raise ActionError(500, f"打不开日志文件：{e}") from e
             try:
                 proc = spawn_detached(
                     project.argv, cwd=str(project.cwd), env=env,
-                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                 )
             except OSError as e:
                 log.append(f"[devpanel] 启动失败：{e}")
                 raise ActionError(500, f"启动失败：{e}") from e
+            finally:
+                out.close()  # 子进程拿的是复制品
             rt.proc = proc
             rt.pid = proc.pid
             try:
@@ -238,8 +248,20 @@ class Supervisor:
             rt.exited_at = None
             rt.manual_stop = False
             rt.url = None
+            if rt.unwatch:
+                rt.unwatch()
+                rt.unwatch = None
+            if project.url_pattern:
+                pattern = project.url_pattern
+
+                def on_line(line: str) -> None:
+                    m = pattern.search(line)
+                    if m and rt.proc is proc:
+                        rt.url = m.group(1)
+                        self._save_pids()
+
+                rt.unwatch = log.watch(on_line)
             self._save_pids()
-        threading.Thread(target=self._pump, args=(project, rt, proc), daemon=True).start()
         threading.Thread(target=self._wait_owned, args=(project, rt, proc), daemon=True).start()
 
     def stop(self, project: Project) -> None:
@@ -302,19 +324,6 @@ class Supervisor:
 
     # ----- 后台线程 -----
 
-    def _pump(self, project: Project, rt: Runtime, proc: subprocess.Popen) -> None:
-        log = self.logs.get(project.id)
-        assert proc.stdout is not None
-        for raw in iter(proc.stdout.readline, b""):
-            line = decode(raw)
-            log.append(line)
-            if project.url_pattern and rt.proc is proc:
-                m = project.url_pattern.search(line)
-                if m:
-                    rt.url = m.group(1)
-                    self._save_pids()
-        proc.stdout.close()
-
     def _wait_owned(self, project: Project, rt: Runtime, proc: subprocess.Popen) -> None:
         code = proc.wait()
         with rt.lock:
@@ -323,6 +332,9 @@ class Supervisor:
             rt.exit_code = code
             rt.exited_at = time.time()
             rt.proc = None
+            if rt.unwatch:
+                rt.unwatch()
+                rt.unwatch = None
             self._procs.pop(rt.pid or -1, None)
             self._save_pids()
             log = self.logs.get(project.id)

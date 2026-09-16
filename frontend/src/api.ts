@@ -100,6 +100,9 @@ export const api = {
   openEditor: (id: string) => post(`/api/projects/${id}/open-editor`),
   openLogFile: (id: string) => post(`/api/projects/${id}/open-log-file`),
   logStreamUrl: (id: string) => `/api/projects/${id}/logs/stream`,
+  // 面板自己
+  panel: () => req<{ pid: number; started_at: number; version: string }>('/api/panel'),
+  restartPanel: () => post('/api/panel/restart') as Promise<{ ok: boolean; pid: number }>,
   // v0.2：界面编辑，写回 projects.yaml
   validate: (project: ProjectForm, editing: string | null) => json<Validation>('/api/projects/validate', 'POST', { project, editing }),
   create: (p: ProjectForm) => json<{ id: string; soft: string[] }>('/api/projects', 'POST', p),

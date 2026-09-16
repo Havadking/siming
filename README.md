@@ -33,10 +33,10 @@
 
 - **一张卡一个项目**：状态点（在线 / 启动中 / 已停 / 异常退出 / 崩溃 / 外部实例）、运行时长、内存（整棵进程树）、CPU、重启次数。点端口号直达项目页面。
 - **启动 / 停止 / 重启**：停止是杀整棵进程树，`npm` 起的 `cmd.exe → node` 两层也一起带走，端口不会被占着。
-- **日志抽屉**：每个项目的 stdout/stderr 落滚动文件（5 MB × 3），页面里实时追加（SSE），自动滚到底，往上翻就停住。UTF-8 解不开退 GBK，ANSI 色码剥掉。
+- **日志抽屉**：每个项目的 stdout/stderr 落滚动文件（5 MB × 3，启动时判断），页面里实时追加（SSE），自动滚到底，往上翻就停住。UTF-8 解不开退 GBK，ANSI 色码剥掉。
 - **挂了拉一把**：`restart: on-failure` 的项目非零退出后指数退避重启，10 分钟内失败 6 次就停手标红，等你来看。
 - **认领外部实例**：你在终端里手动 `npm start` 起的项目，面板按端口找到它，照样显示、照样能停。
-- **面板重启不带走项目**：pid + create_time 记在 `state/pids.json`，面板改完代码重启，项目一个不掉，状态全部认领回来。
+- **面板重启不带走项目**：pid + create_time 记在 `state/pids.json`，面板改完代码重启，项目一个不掉，状态全部认领回来。顶栏 ↻ 一键自我重启，几秒后页面自动恢复。子进程的 stdout 直接写日志文件而不是管道，所以面板死了它们也不会因为 EPIPE 跟着崩。
 - **开机自启**：一条命令注册登录时任务计划，面板和标了 `autostart` 的项目跟着起，没有任何窗口弹出。
 - **配置即文件**：`projects.yaml` 改完保存即生效，不用重启面板。
 - **不用碰文件也行**（v0.2）：页面上「新增 / 编辑 / 删除」直接写回 `projects.yaml`，注释和顺序原样保留。选一个目录，看到 `package.json` / `pyproject.toml` 自动填好命令、端口、名字。卡片可以拖着排序、拖到别的组；组标题点一下折叠，⋯ 里改名 / 上下移 / 删除，底部「新建分组」。
@@ -109,6 +109,7 @@ projects:
 ```bash
 uv run devpanel serve                # 前台起，Ctrl+C 停
 uv run devpanel restart              # 重启面板本身（改了面板代码之后用）；项目不受影响，重启后认领回来
+                                     # 页面顶栏的 ↻ 按钮做的是同一件事：POST /api/panel/restart
 uv run devpanel stop                 # 停掉面板；项目继续跑
 uv run devpanel install-startup      # 注册「登录时」任务计划，后台无窗口起
 uv run devpanel uninstall-startup    # 删掉
@@ -150,6 +151,7 @@ uv run devpanel uninstall-startup    # 删掉
 | POST | `/api/groups` · PUT / DELETE `/api/groups/{name}` · POST `/api/groups/order` | 分组：新建、改名（改成已有的名字 = 合并）、删除（项目归到「其他」）、排序 |
 | GET | `/api/detect?cwd=` | 从目录猜名字、id、命令、端口 |
 | POST | `/api/pick-folder` | 弹系统「选择文件夹」对话框 |
+| GET | `/api/panel` · POST `/api/panel/restart` | 面板自己的 pid / 版本；一键自我重启（拉起脱离的助手进程来杀自己再重起） |
 | GET | `/api/config` · POST `/api/config/reload` | |
 
 接口文档在 `/api/docs`。

@@ -157,6 +157,21 @@ def _serve_argv(cfg_path: Path) -> list[str]:
     return [str(_pythonw()), "-m", "devpanel", "serve", "--no-browser", "--config", str(cfg_path)]
 
 
+def spawn_self_restart(cfg_path: Path) -> None:
+    """面板从自己进程里调：脱离式拉起 `devpanel restart` 助手，由它来杀掉本进程再重起。
+
+    助手用 CREATE_BREAKAWAY_FROM_JOB 起，不在面板的 Job 里，面板死了它还活着。
+    """
+    from .supervisor import spawn_detached
+
+    log_dir = cfg_path.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    argv = [str(_pythonw()), "-m", "devpanel", "restart", "--config", str(cfg_path)]
+    with open(log_dir / "devpanel.log", "ab") as out:
+        spawn_detached(argv, cwd=str(cfg_path.parent),
+                       stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, close_fds=True)
+
+
 @main.command()
 @click.option("--config", "config_path", type=click.Path(), default=None, help="projects.yaml 路径")
 def restart(config_path: str | None) -> None:

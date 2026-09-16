@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Moon, Play, Plus, Square, Sun } from 'lucide-react'
+import { AlertTriangle, Moon, Play, Plus, RefreshCw, Square, Sun } from 'lucide-react'
 import { api, type Project } from './api'
 import { GroupHeader, NewGroupRow } from './components/GroupHeader'
 import { LogDrawer } from './components/LogDrawer'
@@ -201,6 +201,35 @@ export default function App() {
     try { await api.startAll(); void refresh() } catch { /* ignore */ }
   }
 
+  // 面板自我重启：记下旧 pid，轮询 /api/panel 直到 pid 变了
+  const [panelRestart, setPanelRestart] = useState<{ oldPid: number; since: number; failed?: boolean } | null>(null)
+  const restartPanel = async () => {
+    if (!confirm('重启面板本身？项目不受影响，几秒后页面自动恢复。')) return
+    try {
+      const r = await api.restartPanel()
+      setPanelRestart({ oldPid: r.pid, since: Date.now() })
+    } catch (e) {
+      alert(`没能发出重启：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  useEffect(() => {
+    if (!panelRestart || panelRestart.failed) return
+    const t = setInterval(async () => {
+      if (Date.now() - panelRestart.since > 40_000) {
+        setPanelRestart((s) => (s ? { ...s, failed: true } : s))
+        return
+      }
+      try {
+        const info = await api.panel()
+        if (info.pid !== panelRestart.oldPid) {
+          setPanelRestart(null)
+          void refresh()
+        }
+      } catch { /* 还没起来 */ }
+    }, 1000)
+    return () => clearInterval(t)
+  }, [panelRestart, refresh])
+
   const online = projects.filter((p) => p.status === 'running' || p.status === 'external').length
   const rss = projects.reduce((s, p) => s + (p.rss ?? 0), 0)
   const anyLive = projects.some((p) => LIVE.has(p.status))
@@ -267,9 +296,20 @@ export default function App() {
         <button type="button" className="btn ghost sm iconbtn" onClick={toggle} aria-label="切换深浅色" title="切换深浅色">
           {dark ? <Sun /> : <Moon />}
         </button>
+        <button type="button" className={`btn ghost sm iconbtn${panelRestart && !panelRestart.failed ? ' spinning' : ''}`}
+          onClick={restartPanel} disabled={!!panelRestart && !panelRestart.failed} aria-label="重启面板" title="重启面板本身（项目不受影响）">
+          <RefreshCw />
+        </button>
       </header>
 
-      {pollError && <div className="banner bad"><AlertTriangle />连不上面板：{pollError}</div>}
+      {panelRestart && !panelRestart.failed && (
+        <div className="banner info"><RefreshCw className="spin-icon" />面板正在重启…（{Math.floor((Date.now() - panelRestart.since) / 1000)}s）项目不受影响，起来后自动恢复。</div>
+      )}
+      {panelRestart?.failed && (
+        <div className="banner bad"><AlertTriangle />40 秒了面板还没回来。看 <code>logs/devpanel.log</code>，或在终端里 <code>uv run --no-sync devpanel restart</code>。
+          <button type="button" className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setPanelRestart(null)}>知道了</button></div>
+      )}
+      {pollError && !panelRestart && <div className="banner bad"><AlertTriangle />连不上面板：{pollError}</div>}
       {groupErr && <div className="banner bad"><AlertTriangle />{groupErr}</div>}
       {cfgErrors.length > 0 && (
         <div className="banner warn">
