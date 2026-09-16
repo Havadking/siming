@@ -1,0 +1,16 @@
+# devpanel 的唯一输入。改完保存，面板按 mtime 自动重载，不用重启。
+panel:
+  port: 9000            # 面板自己的端口
+  open_browser: true    # serve 时顺手开浏览器
+
+projects:
+  - id: vsum
+    name: 拾光笺
+    cwd: E:/personal/projects/video-summarizer
+    cmd: uv run --no-sync vsum ui --no-browser
+    port: 7860
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
