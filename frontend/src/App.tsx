@@ -111,7 +111,7 @@ export default function App() {
   const anyStartable = projects.some((p) => p.status === 'stopped' || p.status === 'exited' || p.status === 'crashed')
 
   useEffect(() => {
-    document.title = data ? `${online}/${projects.length} 在线 · devpanel` : 'devpanel'
+    document.title = data ? `${online}/${projects.length} 在线 · 司命` : '司命'
   }, [data, online, projects.length])
 
   const groups = useMemo(() => {
@@ -133,7 +133,7 @@ export default function App() {
   return (
     <div className={`app${logProject ? ' with-drawer' : ''}`}>
       <header className="top">
-        <h1>本地项目</h1>
+        <h1>司命</h1>
         {data && (
           <span className="stats">
             {projects.length} 个 · 在线 <b>{online}</b> · 内存 <b>{bytes(rss)}</b>
