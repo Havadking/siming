@@ -130,3 +130,14 @@ def test_adopt_saved_after_panel_restart(sup, tmp_path):
     assert d["status"] == "running" and d["logs_available"] is True and d["pid"] == sup.runtimes["f"].pid
     sup2.stop(p)
     assert wait_for(lambda: status(sup2, p)["status"] == "stopped")
+
+
+def test_env_file_and_clean_path_reach_child(sup, tmp_path):
+    (tmp_path / ".env").write_text("FROM_FILE=yes\n", encoding="utf-8")
+    code = "import os;print(os.environ['FROM_FILE'], os.environ['OVERRIDE'], 'VIRTUAL_ENV' in os.environ, flush=True)"
+    p = project(tmp_path, "g", code, None)
+    p.env_file = tmp_path / ".env"
+    p.env = {"OVERRIDE": "from-yaml"}
+    sup.start(p)
+    assert wait_for(lambda: status(sup, p)["status"] == "stopped")
+    assert sup.logs.get("g").tail(2)[0] == "yes from-yaml False"

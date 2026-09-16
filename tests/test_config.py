@@ -87,3 +87,31 @@ def test_relative_executable(tmp_path):
     """)
     cfg = load(p)
     assert cfg.projects[0].error is None
+
+
+def test_env_file(tmp_path):
+    (tmp_path / ".env").write_text('# 注释\nA=1\nB="two words"\nexport C=\'3\'\nbad line\n', encoding="utf-8")
+    p = write(tmp_path, f"""
+    projects:
+      - id: e
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        env_file: .env
+      - id: missing
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        env_file: nope.env
+    """)
+    cfg = load(p)
+    e, missing = cfg.projects
+    assert e.error is None and e.env_file == tmp_path / ".env"
+    from devpanel.config import read_env_file
+    assert read_env_file(e.env_file) == {"A": "1", "B": "two words", "C": "3"}
+    assert "env_file 不存在" in missing.error
+
+
+def test_clean_path_drops_own_venv():
+    from devpanel.config import clean_path
+    own = str(Path(sys.prefix) / "Scripts")
+    assert own.lower() not in clean_path().lower()
+    assert clean_path()  # 别把整个 PATH 洗空

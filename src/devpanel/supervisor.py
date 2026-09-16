@@ -16,7 +16,7 @@ from pathlib import Path
 
 import psutil
 
-from .config import Project
+from .config import Project, clean_path, read_env_file
 from .logs import LogManager, decode
 
 STARTING_GRACE = 60          # 进程活着但端口不通，超过这个秒数标 unhealthy
@@ -186,9 +186,16 @@ class Supervisor:
                 rt.restart_count = 0
                 rt.crashed = False
             env = {k: v for k, v in os.environ.items() if k not in STRIP_ENV}
+            env["PATH"] = clean_path()
             env.update(DEFAULT_ENV)
-            env.update(project.env)
             log = self.logs.get(project.id)
+            if project.env_file:
+                try:
+                    env.update(read_env_file(project.env_file))
+                except OSError as e:
+                    log.append(f"[devpanel] 读 env_file 失败：{e}")
+                    raise ActionError(500, f"读 env_file 失败：{e}") from e
+            env.update(project.env)
             log.mark("start" if not auto else f"auto restart #{rt.restart_count}")
             log.append(f"$ {project.cmd}")
             try:

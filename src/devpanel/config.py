@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +31,7 @@ class Project:
     restart: str = "never"          # on-failure | never
     env: dict[str, str] = field(default_factory=dict)
     group: str | None = None
+    env_file: Path | None = None                    # KEY=VALUE 文件，spawn 时读；放密码用，不进 git
     argv: list[str] = field(default_factory=list)   # 解析好的命令，argv[0] 已经是绝对路径
     error: str | None = None                        # 配置错误原因；非空则不允许启动
 
@@ -45,6 +47,7 @@ class Project:
             "restart": self.restart,
             "env": self.env,
             "group": self.group,
+            "env_file": str(self.env_file) if self.env_file else None,
             "error": self.error,
         }
 
@@ -74,13 +77,49 @@ def _split_cmd(cmd: str) -> list[str]:
     return [a[1:-1] if len(a) >= 2 and a[0] == a[-1] and a[0] in "\"'" else a for a in argv]
 
 
+def clean_path() -> str:
+    """去掉面板自己 venv 的 Scripts 目录后的 PATH。
+
+    面板由 `uv run` 起，PATH 第一项是面板的 .venv/Scripts；项目里写 `python` 本意是系统 Python，
+    不洗掉就会被解析到面板的解释器。子进程的 PATH 也用这个。
+    """
+    own = {Path(sys.prefix).resolve(), (Path(sys.prefix) / "Scripts").resolve(), (Path(sys.prefix) / "bin").resolve()}
+    kept = []
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            if Path(entry).resolve() in own:
+                continue
+        except OSError:
+            pass
+        kept.append(entry)
+    return os.pathsep.join(kept)
+
+
 def resolve_executable(name: str, cwd: Path) -> str | None:
     """像 shell 一样找可执行文件：相对路径先按 cwd 找，再走 PATH（Windows 上能找到 npm.cmd / uv.exe）。"""
     if os.sep in name or "/" in name:
         p = (cwd / name) if not Path(name).is_absolute() else Path(name)
-        found = shutil.which(str(p))
-        return found
-    return shutil.which(name)
+        return shutil.which(str(p))
+    return shutil.which(name, path=clean_path())
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """最简 dotenv：KEY=VALUE 一行一个，# 开头是注释，两边引号剥掉。不做变量展开。"""
+    out: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        out[k] = v
+    return out
 
 
 def _parse_project(raw: dict, panel_port: int) -> Project:
@@ -123,6 +162,13 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
             problems.append(f"port {p.port} 和面板自己冲突")
     if p.restart not in ("on-failure", "never"):
         problems.append(f"restart 只能是 on-failure / never，不是 {p.restart}")
+    if raw.get("env_file"):
+        ef = Path(str(raw["env_file"])).expanduser()
+        if not ef.is_absolute():
+            ef = cwd / ef
+        p.env_file = ef
+        if not ef.is_file():
+            problems.append(f"env_file 不存在：{ef}")
     if p.url is None and p.port is not None:
         p.url = f"http://127.0.0.1:{p.port}"
     if problems:

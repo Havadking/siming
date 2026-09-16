@@ -14,3 +14,22 @@ projects:
     env:
       PYTHONUTF8: "1"
     group: 常用
+
+  - id: diting
+    name: 谛听
+    cwd: E:/personal/projects/guba-monitor
+    cmd: python server.py --no-browser      # 系统 Python 3.9（winotify 装在那里），不是面板的 venv
+    port: 17777                             # server.py 被占会自动 +1，那样面板会一直显示「端口没开」，先停掉占用者
+    autostart: true
+    restart: on-failure
+    group: 监控
+
+  - id: menshen
+    name: 门神
+    cwd: E:/personal/projects/miwifi
+    cmd: npm start
+    port: 8080
+    autostart: true
+    restart: on-failure
+    env_file: .env                          # 只放 MIWIFI_PASSWORD=…，已在 miwifi/.gitignore 里，不要写进本文件
+    group: 监控
