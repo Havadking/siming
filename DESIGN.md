@@ -298,10 +298,7 @@ frontend/src/
 
 ## 8. 之后的路线
 
-**v0.2 — 不用碰文件**
-- 界面上新增 / 编辑 / 删除项目，直接写回 `projects.yaml`（保留注释——用 `ruamel.yaml`）
-- 「从目录识别」：选一个目录，看到 `package.json` 就填 `npm run dev`，看到 `pyproject.toml` 就猜 `uv run`，端口从配置里猜
-- 卡片拖拽排序、分组折叠
+**v0.2 — 不用碰文件**（已做，见第 9 节）
 
 **v0.3 — 更懂项目**
 - 每张卡片显示 git 分支、是否有未提交改动、最近一次 commit 时间（`git` 子进程，30s 刷一次）
@@ -314,3 +311,76 @@ frontend/src/
 - 或者约定：项目提供 `stop_cmd`，面板先跑它再杀树
 
 **不打算做**：远程机器、Docker、鉴权、通知。要这些就该换 Dockge / Coolify 那类东西了。
+
+---
+
+## 9. v0.2 设计：不用碰文件
+
+v0.1 的所有输入都是手改 `projects.yaml`。v0.2 让日常操作——加一个项目、改个端口、删掉不用的、拖一下顺序——全部在页面上完成，`projects.yaml` 仍然是唯一事实来源，页面只是它的编辑器。
+
+### 9.1 原则
+
+- **yaml 还是唯一事实**。页面上的增删改都直接写回文件，不引入第二份状态。面板重启、手改文件、界面编辑，三者互不冲突。
+- **写回要保留注释和顺序**。用户手写的注释（「地址带一次性 token」这种）是文档，不能被一次界面编辑冲掉。用 `ruamel.yaml` 的 round-trip 模式，改哪个键只动哪个键。
+- **原子写**：先写 `projects.yaml.tmp` 再 `os.replace`，写到一半掉电不会留下半个文件。写完立即 `watcher.reload()`，不等下一次 mtime 检查。
+- **校验分两档**。「硬错误」拒绝保存（id 格式不对、id 重复、缺 cwd / cmd）；「软错误」允许保存但卡片照 v0.1 标「配置错误」（cwd 不存在、命令没装、端口冲突、正则不合法）——用户可能先把项目记下来，回头再装依赖。
+- **id 建了就不改**。id 是日志文件名、`pids.json` 的键、URL 的一部分；改 id 等于删了建一个。界面上编辑时 id 只读。
+
+### 9.2 后端
+
+新模块 `yamledit.py`：
+
+```python
+add_project(path, raw: dict) -> None       # 追加到 projects 末尾
+update_project(path, id, raw: dict) -> None  # 原位改键；raw 里没有的键删掉（用户在表单里清空了）
+delete_project(path, id) -> None
+reorder(path, order: list[{id, group}]) -> None   # 按给的顺序重排，顺便改 group（拖到别的组）
+```
+
+所有写操作在一个进程级 `threading.Lock` 里做，每次都是「读文件 → 改 → 写回」，不缓存文档对象——手改和界面改交错也不会互相覆盖。
+
+`raw` 的形状就是 yaml 里一个项目的映射：`{id, name, cwd, cmd, port, group, autostart, restart, url, url_pattern, env_file, env}`。写入前清理：空字符串 / `None` 的键不写；`autostart: false`、`restart: never` 这类默认值不写，保持文件干净。
+
+新模块 `detect.py`：给一个目录，猜出项目名、id、启动命令、端口。
+
+| 看到 | 猜 |
+|---|---|
+| `package.json` 有 `scripts.dev` | `npm run dev`（有 `pnpm-lock.yaml` → `pnpm dev`，`yarn.lock` → `yarn dev`） |
+| `package.json` 只有 `scripts.start` | `npm start` |
+| `pyproject.toml` 有 `[project.scripts]` | `uv run --no-sync <第一个脚本名>` |
+| `pyproject.toml` 没脚本，但有 `main.py` / `app.py` / `server.py` | `uv run --no-sync python main.py` |
+| 只有 `main.py` 之类，没 pyproject | `python main.py` |
+
+端口：依次翻 `scripts` 里的 `--port N` / `-p N`、`vite.config.*` 里的 `port: N`、`.env` 里的 `PORT=N`、`main.py` 等入口文件里的 `port=N`；都没有就空着。名字取 `package.json.name` / `pyproject.project.name` / 目录名；id 是名字的 slug（非 `[a-z0-9]` 全变 `-`）。返回所有候选命令，让表单里一点就填。识别只是填表，猜错了改一下就是。
+
+选目录：`POST /api/pick-folder` 起一个 `powershell -STA` 跑 `FolderBrowserDialog`，返回选中的路径。面板跑在用户桌面会话（任务计划，不是服务），对话框能弹出来；`TopMost` 的隐形父窗口保证它不会藏在浏览器后面。用户取消返回 `null`。手输路径也行。
+
+接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/projects` | 新增，body 是 raw；硬错误 422 |
+| PUT | `/api/projects/{id}` | 修改；运行中也允许，下次启动生效 |
+| DELETE | `/api/projects/{id}` | 运行中 409；前端先停再删 |
+| POST | `/api/projects/validate` | 干跑校验，返回 `{hard: [...], soft: [...]}`，表单实时用 |
+| POST | `/api/projects/order` | `[{id, group}]`，重排 + 改组 |
+| GET | `/api/detect?cwd=` | 目录识别 |
+| POST | `/api/pick-folder` | 弹系统目录选择框 |
+
+删除时不删日志文件（回头可能还想看），只把 supervisor 里的 Runtime 忘掉。
+
+### 9.3 前端
+
+- **顶栏「+ 新增」** 打开表单对话框；卡片 ⋯ 菜单加「编辑」「删除」。
+- **表单**：基础字段（名称、id、目录、命令、端口、分组、开机自启、失败重启）常显，「高级」折叠里放 url、url_pattern、env_file、env（每行一个 `KEY=VALUE`）。目录框旁边「选择目录…」按钮；目录填好（选中或失焦）就调 `/api/detect`，把**还是空的**字段填上，识别到的候选命令做成小标签一点就换。
+- **校验**：输入停 300ms 调 `/validate`，硬错误红字挡保存，软错误黄字提醒。
+- **删除**：确认；在跑就问「先停止再删除？」。
+- **分组折叠**：点组标题收起 / 展开，状态记 `localStorage`，收起时标题旁显示「3 个 · 在线 2」。
+- **拖拽排序**：原生 HTML5 DnD，卡片抓手在 ⋯ 左边。拖到某张卡片上就插到它前面、组跟它；拖到组标题上就放到那组开头。松手调 `/order`，乐观更新，失败回滚。没有分组时全部算一组。
+  - 一个坑：组标题和卡片必须在**同一个父元素**里（一张平铺的 grid，标题占整行）。如果每组一个 `<section>`，卡片跨组时 React 会把它卸载重建，`dragend` 落在已卸载的节点上，拖拽永远结束不了。
+
+### 9.4 不做
+
+- 编辑 `panel:` 段（端口、open_browser）。改面板端口要重启面板，界面上改没意义。
+- 多选批量。
+- 撤销。yaml 在 git 里，要撤销 `git diff` 看。

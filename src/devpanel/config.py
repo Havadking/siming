@@ -132,6 +132,10 @@ def read_env_file(path: Path) -> dict[str, str]:
     return out
 
 
+# 硬错误：这几条不允许写进 projects.yaml；其余的（cwd 不存在、命令没装、端口冲突）允许保存，卡片上标「配置错误」
+HARD_PREFIXES = ("id 只能是", "缺少 cwd", "缺少 cmd", "id 重复")
+
+
 def _parse_project(raw: dict, panel_port: int) -> Project:
     pid = str(raw.get("id", "")).strip()
     name = str(raw.get("name") or pid)
@@ -176,7 +180,7 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
         try:
             p.url_pattern = re.compile(str(raw["url_pattern"]))
             if p.url_pattern.groups < 1:
-                problems.append("url_pattern 需要一个捕获组，例如 'listening on (http\S+)'")
+                problems.append(r"url_pattern 需要一个捕获组，例如 'listening on (http\S+)'")
         except re.error as e:
             problems.append(f"url_pattern 不是合法正则：{e}")
     if raw.get("env_file"):
@@ -246,6 +250,29 @@ def load(path: Path) -> Config:
             errors.append(f"port {port} 被多个项目使用：{names}")
 
     return Config(panel, projects, errors, path, mtime)
+
+
+KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "env_file", "env")
+
+
+def validate_raw(raw: dict, cfg: Config, *, editing: str | None = None) -> tuple[list[str], list[str]]:
+    """界面表单的干跑校验。返回 (硬错误, 软错误)。
+
+    硬错误拒绝保存；软错误允许保存但卡片会标「配置错误」。`editing` 是正在编辑的项目 id，
+    查 id / port 冲突时把它自己排除掉。
+    """
+    p = _parse_project(raw, cfg.panel.port)
+    problems = p.error.split("；") if p.error else []
+    others = [x for x in cfg.projects if x.id != editing]
+    if p.id and any(x.id == p.id for x in others):
+        problems.append(f"id 重复：{p.id}")
+    if p.port is not None:
+        clash = [x.id for x in others if x.port == p.port]
+        if clash:
+            problems.append(f"port {p.port} 和 {'、'.join(clash)} 冲突")
+    hard = [m for m in problems if m.startswith(HARD_PREFIXES)]
+    soft = [m for m in problems if not m.startswith(HARD_PREFIXES)]
+    return hard, soft
 
 
 class ConfigWatcher:

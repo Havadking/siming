@@ -1,4 +1,5 @@
-import { Code2, Copy, ExternalLink, FileText, FolderOpen, Play, RotateCw, ScrollText, Square } from 'lucide-react'
+import { useRef } from 'react'
+import { Code2, Copy, ExternalLink, FileText, FolderOpen, GripVertical, Pencil, Play, RotateCw, ScrollText, Square, Trash2 } from 'lucide-react'
 import type { Project } from '../api'
 import { ago, bytes, duration } from '../lib/format'
 import { STATUS_LABEL, StatusDot } from './StatusDot'
@@ -8,15 +9,24 @@ export type Action = 'start' | 'stop' | 'restart'
 
 const PENDING_LABEL: Record<Action, string> = { start: '正在启动…', stop: '正在停止…', restart: '正在重启…' }
 
-export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now }: {
+export type MenuKey = 'folder' | 'editor' | 'copy' | 'logfile' | 'edit' | 'delete'
+
+export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, drag }: {
   p: Project
   pending: Action | null
   error: string | null
   onAction: (a: Action) => void
   onLogs: () => void
-  onMenu: (k: 'folder' | 'editor' | 'copy' | 'logfile') => void
+  onMenu: (k: MenuKey) => void
   now: number
+  drag?: {
+    dragging: boolean
+    onStart: (e: React.DragEvent) => void
+    onEnter: () => void
+    onEnd: () => void
+  }
 }) {
+  const el = useRef<HTMLDivElement>(null)
   const s = p.status
   const live = s === 'running' || s === 'starting' || s === 'unhealthy' || s === 'external' || s === 'restarting'
   const canOpen = (s === 'running' || s === 'external') && !!p.url
@@ -38,7 +48,10 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now }
     : p.exit_code != null && s === 'stopped' ? `上次退出 ${p.exit_code}` : ' '
 
   return (
-    <div className={`card proj${isErr ? ' cfg-err' : ''}${pending ? ' busy' : ''}`} title={`${p.cwd}\n$ ${p.cmd}`}>
+    <div ref={el} className={`card proj${isErr ? ' cfg-err' : ''}${pending ? ' busy' : ''}${drag?.dragging ? ' dragging' : ''}`}
+      title={`${p.cwd}\n$ ${p.cmd}`}
+      onDragEnter={drag ? (e) => { e.preventDefault(); drag.onEnter() } : undefined}
+      onDragOver={drag ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } : undefined}>
       <div className="head">
         <StatusDot status={s} />
         <h3 className="name" title={p.name}>{p.name}</h3>
@@ -66,11 +79,25 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now }
           </Button>
         )}
         <span className="grow" />
+        {drag && (
+          <span className="grip" draggable title="拖动排序 / 换组" aria-label="拖动排序"
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', p.id)
+              if (el.current) e.dataTransfer.setDragImage(el.current, 20, 20)
+              drag.onStart(e)
+            }}
+            onDragEnd={drag.onEnd}>
+            <GripVertical />
+          </span>
+        )}
         <Menu items={[
+          { label: '编辑', icon: <Pencil />, onClick: () => onMenu('edit') },
           { label: '打开目录', icon: <FolderOpen />, onClick: () => onMenu('folder') },
           { label: '在 VS Code 打开', icon: <Code2 />, onClick: () => onMenu('editor') },
           { label: '打开日志文件', icon: <FileText />, onClick: () => onMenu('logfile') },
           { label: '复制命令', icon: <Copy />, onClick: () => onMenu('copy') },
+          { label: '删除', icon: <Trash2 />, danger: true, onClick: () => onMenu('delete') },
         ]} />
       </div>
       <div className="hint mono">{p.cwd}<br />$ {p.cmd}</div>

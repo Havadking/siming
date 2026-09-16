@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Moon, Play, Square, Sun } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { AlertTriangle, ChevronDown, Moon, Play, Plus, Square, Sun } from 'lucide-react'
 import { api, type Project } from './api'
 import { LogDrawer } from './components/LogDrawer'
-import { ProjectCard, type Action } from './components/ProjectCard'
+import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard'
+import { ProjectDialog } from './components/ProjectDialog'
 import { Button } from './components/ui'
 import { usePolling } from './hooks/usePolling'
 import { bytes } from './lib/format'
@@ -32,6 +33,22 @@ function useTheme() {
 }
 
 const LIVE = new Set(['running', 'starting', 'unhealthy', 'external', 'restarting'])
+const OTHER = '其他'
+
+function useCollapsed() {
+  const [set, setSet] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('collapsed-groups') ?? '[]') as string[]) } catch { return new Set() }
+  })
+  const toggle = (g: string) => setSet((prev) => {
+    const next = new Set(prev)
+    if (next.has(g)) next.delete(g); else next.add(g)
+    try { localStorage.setItem('collapsed-groups', JSON.stringify([...next])) } catch { /* ignore */ }
+    return next
+  })
+  return { collapsed: set, toggle }
+}
+
+type OrderEntry = { id: string; group: string | null }
 
 export default function App() {
   const { dark, toggle } = useTheme()
@@ -39,6 +56,11 @@ export default function App() {
   const [pending, setPending] = useState<Record<string, Action | null>>({})
   const [cardErr, setCardErr] = useState<Record<string, string | null>>({})
   const [logId, setLogId] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<{ editing: Project | null } | null>(null)
+  const { collapsed, toggle: toggleGroup } = useCollapsed()
+  // 拖拽中：本地顺序覆盖服务端顺序，松手后写回
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [localOrder, setLocalOrder] = useState<OrderEntry[] | null>(null)
   const [now, setNow] = useState(() => Date.now() / 1000)
   const errTimers = useRef<Record<string, number>>({})
 
@@ -48,8 +70,13 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  const projects = data?.projects ?? []
+  const serverProjects = useMemo(() => data?.projects ?? [], [data])
   const cfgErrors = data?.errors ?? []
+  const projects = useMemo(() => {
+    if (!localOrder) return serverProjects
+    const byId = new Map(serverProjects.map((p) => [p.id, p]))
+    return localOrder.flatMap((o) => { const p = byId.get(o.id); return p ? [{ ...p, group: o.group }] : [] })
+  }, [serverProjects, localOrder])
 
   // 拿到真实状态后清掉过渡态
   useEffect(() => {
@@ -86,16 +113,83 @@ export default function App() {
     }
   }, [refresh, showErr])
 
-  const menu = useCallback(async (p: Project, k: 'folder' | 'editor' | 'copy' | 'logfile') => {
+  const remove = useCallback(async (p: Project) => {
+    if (LIVE.has(p.status)) {
+      if (!confirm(`「${p.name}」还在运行，先停止再删除？`)) return
+      await api.stop(p.id)
+    } else if (!confirm(`删除「${p.name}」？projects.yaml 里的这一项会被移除，日志文件保留。`)) return
+    await api.remove(p.id)
+    void refresh()
+  }, [refresh])
+
+  const menu = useCallback(async (p: Project, k: MenuKey) => {
     try {
       if (k === 'folder') await api.openFolder(p.id)
       else if (k === 'editor') await api.openEditor(p.id)
       else if (k === 'logfile') await api.openLogFile(p.id)
+      else if (k === 'edit') setDialog({ editing: p })
+      else if (k === 'delete') await remove(p)
       else await navigator.clipboard.writeText(`cd ${p.cwd}\n${p.cmd}`)
     } catch (e) {
       showErr(p.id, e instanceof Error ? e.message : String(e))
     }
-  }, [showErr])
+  }, [showErr, remove])
+
+  // ----- 拖拽排序 -----
+  const dragStart = useCallback((id: string) => {
+    setDragId(id)
+    setLocalOrder(serverProjects.map((p) => ({ id: p.id, group: p.group })))
+  }, [serverProjects])
+
+  /** 拖到某张卡片上：插到它的位置，组跟它 */
+  const dragOverCard = useCallback((targetId: string) => {
+    if (!dragId || dragId === targetId) return
+    setLocalOrder((prev) => {
+      if (!prev) return prev
+      const from = prev.findIndex((o) => o.id === dragId)
+      const to = prev.findIndex((o) => o.id === targetId)
+      if (from < 0 || to < 0) return prev
+      const next = prev.slice()
+      const [item] = next.splice(from, 1)
+      next.splice(to, 0, { ...item, group: prev[to].group })
+      return next
+    })
+  }, [dragId])
+
+  /** 拖到某个组的标题上：挪到这组开头 */
+  const dragOverGroup = useCallback((group: string | null) => {
+    if (!dragId) return
+    setLocalOrder((prev) => {
+      if (!prev) return prev
+      const from = prev.findIndex((o) => o.id === dragId)
+      if (from < 0) return prev
+      const cur = prev[from]
+      const rest = prev.filter((o) => o.id !== dragId)
+      let first = rest.findIndex((o) => (o.group ?? null) === group)
+      if (first < 0) first = rest.length
+      if ((cur.group ?? null) === group && from === first) return prev
+      rest.splice(first, 0, { ...cur, group })
+      return rest
+    })
+  }, [dragId])
+
+  const dragEnd = useCallback(async () => {
+    const order = localOrder
+    setDragId(null)
+    if (!order) return
+    const before = serverProjects.map((p) => `${p.id}:${p.group ?? ''}`).join(',')
+    const after = order.map((o) => `${o.id}:${o.group ?? ''}`).join(',')
+    if (before === after) { setLocalOrder(null); return }
+    try {
+      await api.order(order)
+      await refresh()
+    } catch (e) {
+      const id = order[0]?.id
+      if (id) showErr(id, `排序没保存：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setLocalOrder(null)
+    }
+  }, [localOrder, serverProjects, refresh, showErr])
 
   const stopAll = async () => {
     if (!confirm('停止所有在跑的项目？')) return
@@ -123,9 +217,10 @@ export default function App() {
     }
     const named = [...m.entries()].filter(([g]) => g)
     const rest = m.get('')
-    if (rest) named.push(['其他', rest])
+    if (rest) named.push([OTHER, rest])
     return named
   }, [projects])
+  const groupNames = useMemo(() => groups.map(([g]) => g).filter((g) => g !== OTHER), [groups])
 
   const logProject = logId ? projects.find((p) => p.id === logId) ?? null : null
   useEffect(() => { if (logId && data && !logProject) setLogId(null) }, [logId, data, logProject])
@@ -140,6 +235,7 @@ export default function App() {
           </span>
         )}
         <span className="grow" />
+        <Button size="sm" variant="primary" onClick={() => setDialog({ editing: null })}><Plus />新增</Button>
         <Button size="sm" onClick={startAll} disabled={!anyStartable}><Play />全部启动</Button>
         <Button size="sm" onClick={stopAll} disabled={!anyLive}><Square />全部停止</Button>
         <button type="button" className="btn ghost sm iconbtn" onClick={toggle} aria-label="切换深浅色" title="切换深浅色">
@@ -157,25 +253,53 @@ export default function App() {
 
       <main className="page">
         {data && projects.length === 0 && (
-          <div className="empty"><b>清单是空的</b>在 <code>projects.yaml</code> 里加项目，保存后 2 秒内出现在这里。</div>
+          <div className="empty"><b>清单是空的</b>点右上角「新增」，或在 <code>projects.yaml</code> 里加项目。</div>
         )}
-        {groups.map(([g, ps]) => (
-          <section key={g} className="group">
-            {groups.length > 1 && <h2 className="gtitle">{g}</h2>}
-            <div className="grid">
-              {ps.map((p) => (
-                <ProjectCard key={p.id} p={p} now={now}
-                  pending={pending[p.id] ?? null} error={cardErr[p.id] ?? null}
-                  onAction={(a) => { void act(p.id, a) }}
-                  onLogs={() => setLogId(p.id)}
-                  onMenu={(k) => { void menu(p, k) }} />
-              ))}
-            </div>
-          </section>
-        ))}
+        <div className="grid">
+          {groups.flatMap(([g, ps]) => {
+            const groupKey = g === OTHER ? null : g
+            const isCollapsed = groups.length > 1 && collapsed.has(g) && !dragId
+            const liveN = ps.filter((p) => p.status === 'running' || p.status === 'external').length
+            const items: ReactNode[] = []
+            if (groups.length > 1) {
+              items.push(
+                <button key={`h:${g}`} type="button" className={`gtitle${isCollapsed ? ' closed' : ''}${dragId ? ' dropzone' : ''}`}
+                  onClick={() => toggleGroup(g)} aria-expanded={!isCollapsed}
+                  onDragEnter={dragId ? (e) => { e.preventDefault(); dragOverGroup(groupKey) } : undefined}
+                  onDragOver={dragId ? (e) => { e.preventDefault() } : undefined}>
+                  <ChevronDown />{g}
+                  <span className="gsum">{isCollapsed ? `${ps.length} 个 · 在线 ${liveN}` : ps.length}</span>
+                </button>,
+              )
+            }
+            if (!isCollapsed) {
+              for (const p of ps) {
+                items.push(
+                  <ProjectCard key={p.id} p={p} now={now}
+                    pending={pending[p.id] ?? null} error={cardErr[p.id] ?? null}
+                    onAction={(a) => { void act(p.id, a) }}
+                    onLogs={() => setLogId(p.id)}
+                    onMenu={(k) => { void menu(p, k) }}
+                    drag={{
+                      dragging: dragId === p.id,
+                      onStart: () => dragStart(p.id),
+                      onEnter: () => dragOverCard(p.id),
+                      onEnd: () => { void dragEnd() },
+                    }} />,
+                )
+              }
+            }
+            return items
+          })}
+        </div>
       </main>
 
       {logProject && <LogDrawer id={logProject.id} name={logProject.name} onClose={() => setLogId(null)} />}
+      {dialog && (
+        <ProjectDialog editing={dialog.editing} groups={groupNames}
+          onClose={() => setDialog(null)}
+          onSaved={() => { setDialog(null); void refresh() }} />
+      )}
     </div>
   )
 }

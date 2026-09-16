@@ -13,6 +13,8 @@ export interface Project {
   restart: 'on-failure' | 'never'
   env: Record<string, string>
   group: string | null
+  env_file: string | null
+  url_pattern: string | null
   error: string | null
   status: Status
   pid: number | null
@@ -31,6 +33,35 @@ export interface ProjectsResponse {
   projects: Project[]
   errors: string[]
 }
+
+/** 表单里的一个项目，形状就是 projects.yaml 里的一项。空字符串 = 不写。 */
+export interface ProjectForm {
+  id: string
+  name: string
+  cwd: string
+  cmd: string
+  port: string
+  group: string
+  autostart: boolean
+  restart: 'on-failure' | 'never'
+  url: string
+  url_pattern: string
+  env_file: string
+  env: Record<string, string>
+}
+
+export interface Detected {
+  cwd: string
+  kind: 'node' | 'python' | 'unknown'
+  name: string
+  id: string
+  cmd: string | null
+  candidates: string[]
+  port: number | null
+  notes: string[]
+}
+
+export interface Validation { hard: string[]; soft: string[] }
 
 export class ApiError extends Error {
   status: number
@@ -54,6 +85,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const post = (path: string) => req<unknown>(path, { method: 'POST' })
+const json = <T,>(path: string, method: string, body: unknown) =>
+  req<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export const api = {
   projects: () => req<ProjectsResponse>('/api/projects'),
@@ -66,4 +99,12 @@ export const api = {
   openEditor: (id: string) => post(`/api/projects/${id}/open-editor`),
   openLogFile: (id: string) => post(`/api/projects/${id}/open-log-file`),
   logStreamUrl: (id: string) => `/api/projects/${id}/logs/stream`,
+  // v0.2：界面编辑，写回 projects.yaml
+  validate: (project: ProjectForm, editing: string | null) => json<Validation>('/api/projects/validate', 'POST', { project, editing }),
+  create: (p: ProjectForm) => json<{ id: string; soft: string[] }>('/api/projects', 'POST', p),
+  update: (id: string, p: ProjectForm) => json<{ id: string; soft: string[] }>(`/api/projects/${id}`, 'PUT', p),
+  remove: (id: string) => req<unknown>(`/api/projects/${id}`, { method: 'DELETE' }),
+  order: (order: { id: string; group: string | null }[]) => json<unknown>('/api/projects/order', 'POST', order),
+  detect: (cwd: string) => req<Detected>(`/api/detect?cwd=${encodeURIComponent(cwd)}`),
+  pickFolder: (initial: string | null) => json<{ path: string | null; detected: Detected | null }>('/api/pick-folder', 'POST', { initial }),
 }

@@ -266,6 +266,18 @@ class Supervisor:
                 time.sleep(0.1)
         self.start(project)
 
+    def forget(self, project_id: str) -> None:
+        """项目被删掉了：丢掉它的 Runtime。还活着就拒绝，调用方得先 stop。"""
+        with self._lock:
+            rt = self.runtimes.get(project_id)
+            if rt is None:
+                return
+            if rt.alive():
+                raise ActionError(409, "还在运行，先停止")
+            self._cancel_restart(rt)
+            del self.runtimes[project_id]
+        self._save_pids()
+
     def reset_crash(self, project_id: str) -> None:
         rt = self._rt(project_id)
         rt.failures.clear()

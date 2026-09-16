@@ -11,12 +11,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
-from . import __version__
-from .config import Config, ConfigWatcher, Project
+from . import __version__, yamledit
+from .config import Config, ConfigWatcher, Project, validate_raw
+from .detect import detect
 from .logs import LogManager
+from .pick import pick_folder
 from .supervisor import ActionError, Supervisor
 
 DIST_DIR = Path(__file__).parent / "web" / "dist"
@@ -137,6 +139,72 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
         _run(state.supervisor.restart, p)
         return {"ok": True}
 
+    # ----- 增删改（写回 projects.yaml）-----
+
+    def _edit(fn, *args):
+        try:
+            fn(state.watcher.path, *args)
+        except yamledit.EditError as e:
+            raise HTTPException(e.status, str(e)) from e
+        except OSError as e:
+            raise HTTPException(500, f"写 projects.yaml 失败：{e}") from e
+        state.watcher.reload()
+
+    def _check(raw: dict, editing: str | None) -> list[str]:
+        hard, soft = validate_raw(raw, state.config(), editing=editing)
+        if hard:
+            raise HTTPException(422, "；".join(hard))
+        return soft
+
+    @app.post("/api/projects/validate")
+    def validate_project(body: dict = Body(...)):
+        raw = body.get("project") if isinstance(body.get("project"), dict) else body
+        hard, soft = validate_raw(yamledit.clean(raw), state.config(), editing=body.get("editing"))
+        return {"hard": hard, "soft": soft}
+
+    @app.post("/api/projects", status_code=201)
+    def create_project(raw: dict = Body(...)):
+        raw = yamledit.clean(raw)
+        soft = _check(raw, None)
+        _edit(yamledit.add_project, raw)
+        return {"ok": True, "id": raw.get("id"), "soft": soft}
+
+    @app.put("/api/projects/{project_id}")
+    def update_project(project_id: str, raw: dict = Body(...)):
+        state.project(project_id)
+        raw = yamledit.clean({**raw, "id": project_id})
+        soft = _check(raw, project_id)
+        _edit(yamledit.update_project, project_id, raw)
+        return {"ok": True, "id": project_id, "soft": soft}
+
+    @app.delete("/api/projects/{project_id}")
+    def delete_project(project_id: str):
+        p = state.project(project_id)
+        snap = next(d for d in state.supervisor.snapshot([p]) if d["id"] == project_id)
+        if snap["status"] in ("running", "starting", "unhealthy", "restarting"):
+            raise HTTPException(409, "还在运行，先停止再删除")
+        _run(state.supervisor.forget, project_id)
+        _edit(yamledit.delete_project, project_id)
+        return {"ok": True}
+
+    @app.post("/api/projects/order")
+    def order_projects(order: list[dict] = Body(...)):
+        _edit(yamledit.reorder, order)
+        return {"ok": True}
+
+    @app.get("/api/detect")
+    def detect_dir(cwd: str = Query(..., min_length=1)):
+        return detect(Path(cwd))
+
+    @app.post("/api/pick-folder")
+    def pick_dir(body: dict | None = Body(None)):
+        initial = (body or {}).get("initial") or _common_parent(state.config())
+        try:
+            path = pick_folder(initial)
+        except RuntimeError as e:
+            raise HTTPException(500, str(e)) from e
+        return {"path": path, "detected": detect(Path(path)) if path else None}
+
     # ----- 日志 -----
 
     @app.get("/api/projects/{project_id}/logs")
@@ -233,6 +301,18 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
             )
 
     return app
+
+
+def _common_parent(cfg: Config) -> str | None:
+    """已有项目目录的共同父目录，选目录框从那里开始。"""
+    dirs = [p.cwd.parent for p in cfg.projects if p.cwd.is_dir()]
+    if not dirs:
+        return None
+    try:
+        common = os.path.commonpath([str(d) for d in dirs])
+    except ValueError:   # 不同盘符
+        return str(dirs[0])
+    return common if len(Path(common).parts) > 1 else None
 
 
 def _sse(line: str) -> str:

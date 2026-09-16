@@ -1,6 +1,6 @@
 [project]
 name = "devpanel"
-version = "0.1.0"
+version = "0.2.0"
 description = "司命：本地项目控制台，一页管住机器上所有本地网页项目的启停、状态和日志"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,6 +10,7 @@ dependencies = [
     "psutil>=6.0",
     "pyyaml>=6.0",
     "click>=8.1",
+    "ruamel-yaml>=0.18",
 ]
 
 [project.optional-dependencies]
