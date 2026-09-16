@@ -32,6 +32,7 @@ class Project:
     env: dict[str, str] = field(default_factory=dict)
     group: str | None = None
     env_file: Path | None = None                    # KEY=VALUE 文件，spawn 时读；放密码用，不进 git
+    url_pattern: re.Pattern[str] | None = None      # 在 stdout 里匹配，捕获组 1 当「打开」链接（带 token 的地址）
     argv: list[str] = field(default_factory=list)   # 解析好的命令，argv[0] 已经是绝对路径
     error: str | None = None                        # 配置错误原因；非空则不允许启动
 
@@ -56,6 +57,7 @@ class Project:
             "env": self.env,
             "group": self.group,
             "env_file": str(self.env_file) if self.env_file else None,
+            "url_pattern": self.url_pattern.pattern if self.url_pattern else None,
             "error": self.error,
         }
 
@@ -170,6 +172,13 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
             problems.append(f"port {p.port} 和面板自己冲突")
     if p.restart not in ("on-failure", "never"):
         problems.append(f"restart 只能是 on-failure / never，不是 {p.restart}")
+    if raw.get("url_pattern"):
+        try:
+            p.url_pattern = re.compile(str(raw["url_pattern"]))
+            if p.url_pattern.groups < 1:
+                problems.append("url_pattern 需要一个捕获组，例如 'listening on (http\S+)'")
+        except re.error as e:
+            problems.append(f"url_pattern 不是合法正则：{e}")
     if raw.get("env_file"):
         ef = Path(str(raw["env_file"])).expanduser()
         if not ef.is_absolute():

@@ -118,3 +118,25 @@ def test_clean_path_drops_own_venv():
     own = str(Path(sys.prefix) / "Scripts")
     assert own.lower() not in clean_path().lower()
     assert clean_path()  # 别把整个 PATH 洗空
+
+
+def test_url_pattern_validation(tmp_path):
+    p = write(tmp_path, f"""
+    projects:
+      - id: ok
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        url_pattern: 'web: (http\S+)'
+      - id: nogroup
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        url_pattern: 'http\S+'
+      - id: broken
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        url_pattern: '(http'
+    """)
+    ok, nogroup, broken = load(p).projects
+    assert ok.error is None and ok.url_pattern.pattern == r"web: (http\S+)"
+    assert "捕获组" in nogroup.error
+    assert "不是合法正则" in broken.error

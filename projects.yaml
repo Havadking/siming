@@ -33,3 +33,13 @@ projects:
     restart: on-failure
     env_file: .env                          # 只放 MIWIFI_PASSWORD=…，已在 miwifi/.gitignore 里，不要写进本文件
     group: 监控
+
+  - id: dsh
+    name: DeepSeek Harness
+    cwd: E:/personal/projects/DeepSeek Harness
+    cmd: npx -y @deepseek-ai/dsh web --no-open --port 3080   # -y：没缓存时别弹「要装吗」卡住；端口钉死，默认也是 3080
+    port: 3080
+    url_pattern: 'dsh web: (http\S+)'       # 地址带一次性 token，直接开 :3080 是 401，从日志里捞
+    autostart: true
+    restart: on-failure
+    group: 常用

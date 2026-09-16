@@ -154,3 +154,19 @@ def test_missing_env_file_blocks_start_until_created(sup, tmp_path):
     assert status(sup, p)["status"] == "stopped"   # 不用重载配置
     sup.start(p)
     assert wait_for(lambda: status(sup, p)["status"] == "stopped" and status(sup, p)["exit_code"] == 0)
+
+
+def test_url_pattern_from_stdout(sup, tmp_path):
+    import re
+    code = "import time;print('ready at http://127.0.0.1:1234/?token=abc', flush=True);time.sleep(30)"
+    p = project(tmp_path, "u", code, None)
+    p.url = "http://127.0.0.1:1234"
+    p.url_pattern = re.compile(r"ready at (http\S+)")
+    sup.start(p)
+    assert wait_for(lambda: status(sup, p)["url"] == "http://127.0.0.1:1234/?token=abc")
+    # 面板重启后从 pids.json 恢复
+    sup2 = Supervisor(tmp_path / "state", LogManager(tmp_path / "logs"))
+    sup2.adopt_saved([p])
+    assert status(sup2, p)["url"] == "http://127.0.0.1:1234/?token=abc"
+    sup2.stop(p)
+    assert wait_for(lambda: status(sup2, p)["url"] == "http://127.0.0.1:1234")

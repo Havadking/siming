@@ -56,6 +56,7 @@ class Runtime:
     restart_timer: threading.Timer | None = None
     restart_due: float | None = None          # 正在退避，什么时候重启
     crashed: bool = False
+    url: str | None = None                    # 从日志里按 url_pattern 捞到的地址，比配置里的 url 优先
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def alive(self) -> bool:
@@ -130,7 +131,7 @@ class Supervisor:
 
     def _save_pids(self) -> None:
         data = {
-            pid_id: {"pid": rt.pid, "create_time": rt.create_time, "started_at": rt.started_at}
+            pid_id: {"pid": rt.pid, "create_time": rt.create_time, "started_at": rt.started_at, "url": rt.url}
             for pid_id, rt in self.runtimes.items()
             if rt.owned and rt.pid is not None and rt.exit_code is None and rt.alive()
         }
@@ -154,6 +155,7 @@ class Supervisor:
                 rt = self._rt(pid_id)
                 rt.pid, rt.create_time, rt.started_at = pid, ct, rec.get("started_at") or time.time()
                 rt.owned, rt.exit_code, rt.proc = True, None, None
+                rt.url = rec.get("url")
                 threading.Thread(target=self._watch_adopted, args=(pid_id, rt), daemon=True).start()
                 adopted.append(pid_id)
                 self.logs.get(pid_id).mark("panel restarted, adopted")
@@ -219,8 +221,9 @@ class Supervisor:
             rt.exit_code = None
             rt.exited_at = None
             rt.manual_stop = False
+            rt.url = None
             self._save_pids()
-        threading.Thread(target=self._pump, args=(project.id, proc), daemon=True).start()
+        threading.Thread(target=self._pump, args=(project, rt, proc), daemon=True).start()
         threading.Thread(target=self._wait_owned, args=(project, rt, proc), daemon=True).start()
 
     def stop(self, project: Project) -> None:
@@ -271,11 +274,17 @@ class Supervisor:
 
     # ----- 后台线程 -----
 
-    def _pump(self, project_id: str, proc: subprocess.Popen) -> None:
-        log = self.logs.get(project_id)
+    def _pump(self, project: Project, rt: Runtime, proc: subprocess.Popen) -> None:
+        log = self.logs.get(project.id)
         assert proc.stdout is not None
         for raw in iter(proc.stdout.readline, b""):
-            log.append(decode(raw))
+            line = decode(raw)
+            log.append(line)
+            if project.url_pattern and rt.proc is proc:
+                m = project.url_pattern.search(line)
+                if m:
+                    rt.url = m.group(1)
+                    self._save_pids()
         proc.stdout.close()
 
     def _wait_owned(self, project: Project, rt: Runtime, proc: subprocess.Popen) -> None:
@@ -371,6 +380,7 @@ class Supervisor:
             d: dict = {
                 **p.to_dict(),
                 "error": err,
+                "url": (rt.url if rt and rt.url and rt.alive() else None) or p.url,
                 "status": "stopped", "pid": None, "uptime": None, "rss": None, "cpu": None,
                 "restart_count": rt.restart_count if rt else 0,
                 "exit_code": rt.exit_code if rt else None,

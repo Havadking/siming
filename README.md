@@ -82,6 +82,14 @@ projects:
     env_file: .env                  # KEY=VALUE 文件，spawn 时读进环境变量；放密码用
     env:                            # 直接写的环境变量（别放密码，这文件在 git 里）
       LOG_LEVEL: debug
+
+  - id: dsh
+    name: DeepSeek Harness
+    cwd: E:/personal/projects/DeepSeek Harness
+    cmd: npx -y @deepseek-ai/dsh web --no-open --port 3080
+    port: 3080
+    url_pattern: 'dsh web: (http\S+)'   # 地址带一次性 token，直接开 :3080 是 401；
+                                        # 正则在 stdout 里匹配，捕获组 1 当「打开」链接
 ```
 
 几条约定：
@@ -89,6 +97,8 @@ projects:
 - `cmd` 用 `shlex` 拆开，第一个词按 PATH 解析（Windows 上能找到 `npm.cmd`、`uv.exe`），**不走 `shell=True`**。找不到的命令在卡片上标「命令不存在」。
 - 项目里写 `python` 解析到的是**系统** Python，不是面板自己的 venv——面板会把自己的 `.venv/Scripts` 从 PATH 里洗掉，也不传 `VIRTUAL_ENV`。
 - 校验失败（`cwd` 不存在、端口冲突、`env_file` 缺失……）只影响那一个项目，卡片半透明并显示原因，其他照常。
+- `url_pattern`：有些服务的地址每次启动都变（随机端口、一次性 token），写一个带捕获组的正则，面板从它的 stdout 里捞出来当「打开」链接，面板重启后也记得。
+- `npx` 项目加 `-y`：包没缓存时 npx 会问「要装吗」，面板给子进程的 stdin 是空的，会卡死在那里。
 - `uv` 项目请写 `--no-sync`：项目常驻时 `uv sync` 会失败，要改依赖先在面板里停掉它。
 
 ## 开机自启
