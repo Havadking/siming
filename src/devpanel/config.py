@@ -63,6 +63,31 @@ class Project:
 
 
 @dataclass
+class Tool:
+    id: str
+    name: str
+    file: Path
+    desc: str | None = None
+    error: str | None = None
+
+    def runtime_error(self) -> str | None:
+        if self.error:
+            return self.error
+        if not self.file.is_file():
+            return f"文件不存在：{self.file}"
+        return None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "file": str(self.file),
+            "desc": self.desc,
+            "error": self.runtime_error(),
+        }
+
+
+@dataclass
 class PanelConfig:
     port: int = DEFAULT_PANEL_PORT
     open_browser: bool = True
@@ -76,6 +101,7 @@ class Config:
     path: Path
     mtime: float
     groups: list[str] = field(default_factory=list)   # 顶层 groups: 列表；决定顺序，允许空组
+    tools: list[Tool] = field(default_factory=list)
 
     @property
     def base_dir(self) -> Path:
@@ -204,6 +230,37 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
     return p
 
 
+def _parse_tool(raw: dict, base_dir: Path) -> Tool:
+    raw_id = str(raw.get("id", "")).strip()
+    name = str(raw.get("name") or raw_id).strip()
+    raw_file = str(raw.get("file", "")).strip()
+    desc = raw.get("desc")
+    desc_str = str(desc).strip() if desc is not None else None
+
+    file_path = Path(raw_file).expanduser() if raw_file else Path()
+    if not file_path.is_absolute() and raw_file:
+        file_path = (base_dir / file_path).resolve()
+
+    problems: list[str] = []
+    tid = raw_id
+    if not tid:
+        base = file_path.stem.lower() if raw_file else "tool"
+        tid = re.sub(r"[^a-z0-9-]", "-", base).strip("-")
+        if not tid or not ID_RE.match(tid):
+            import hashlib
+            tid = f"t-{hashlib.md5((name or 'tool').encode()).hexdigest()[:6]}"
+    elif not ID_RE.match(tid):
+        problems.append("id 只能是 [a-z0-9-]，且不能为空")
+
+    if not raw_file:
+        problems.append("缺少 file")
+
+    tool = Tool(id=tid, name=name or tid, file=file_path, desc=desc_str)
+    if problems:
+        tool.error = "；".join(problems)
+    return tool
+
+
 def load(path: Path) -> Config:
     path = path.resolve()
     errors: list[str] = []
@@ -268,7 +325,68 @@ def load(path: Path) -> Config:
                 x.error = f"{x.error}；{msg}" if x.error else msg
             errors.append(f"port {port} 被多个项目使用：{names}")
 
-    return Config(panel, projects, errors, path, mtime, groups)
+    # 解析 tools
+    tools: list[Tool] = []
+    raw_tools = data.get("tools") or []
+    if not isinstance(raw_tools, list):
+        errors.append("tools 必须是列表")
+    else:
+        seen_tool_ids: set[str] = set()
+        for i, raw in enumerate(raw_tools):
+            if not isinstance(raw, dict):
+                errors.append(f"tools[{i}] 不是映射，已忽略")
+                continue
+            t = _parse_tool(raw, path.parent)
+            if t.id in seen_tool_ids:
+                msg = f"tool id 重复：{t.id}"
+                t.error = f"{t.error}；{msg}" if t.error else msg
+                errors.append(msg)
+            else:
+                seen_tool_ids.add(t.id)
+            tools.append(t)
+
+    return Config(panel, projects, errors, path, mtime, groups, tools)
+
+
+def append_tool_to_yaml(config_path: Path, name: str, file_str: str, desc: str | None = None) -> Tool:
+    config_path = config_path.resolve()
+    text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+
+    p = Path(file_str).expanduser()
+    base = p.stem.lower() if file_str else "tool"
+    tid = re.sub(r"[^a-z0-9-]", "-", base).strip("-")
+    if not tid or not ID_RE.match(tid):
+        import hashlib
+        tid = f"t-{hashlib.md5(name.encode()).hexdigest()[:6]}"
+
+    existing_cfg = load(config_path)
+    existing_ids = {t.id for t in existing_cfg.tools}
+    final_id = tid
+    counter = 1
+    while final_id in existing_ids:
+        final_id = f"{tid}-{counter}"
+        counter += 1
+
+    entry_lines = [
+        f"  - id: {final_id}",
+        f"    name: {name}",
+        f"    file: {file_str}",
+    ]
+    if desc:
+        entry_lines.append(f"    desc: {desc}")
+    entry_str = "\n".join(entry_lines) + "\n"
+
+    match = re.search(r"^tools:\s*$", text, re.MULTILINE)
+    if match:
+        if text.endswith("\n"):
+            new_text = text + entry_str
+        else:
+            new_text = text + "\n" + entry_str
+    else:
+        new_text = text.rstrip() + f"\n\ntools:\n{entry_str}"
+
+    config_path.write_text(new_text, encoding="utf-8")
+    return _parse_tool({"id": final_id, "name": name, "file": file_str, "desc": desc}, config_path.parent)
 
 
 KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "env_file", "env")

@@ -3,7 +3,7 @@ panel:
   port: 9000            # 面板自己的端口
   open_browser: true    # serve 时顺手开浏览器
 
-groups: [常用, 监控]
+groups: [常用, 监控, AI]
 
 projects:
   - id: vsum
@@ -44,4 +44,7 @@ projects:
     url_pattern: 'dsh web: (http\S+)'       # 地址带一次性 token，直接开 :3080 是 401，从日志里捞
     autostart: true
     restart: on-failure
-    group: 常用
+    group: AI
+
+# 本地纯 HTML 单页小工具（免起后台服务，一键直达）
+tools: []

@@ -15,10 +15,10 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from . import __version__, yamledit
-from .config import Config, ConfigWatcher, Project, validate_raw
+from .config import Config, ConfigWatcher, Project, Tool, append_tool_to_yaml, validate_raw
 from .detect import detect
 from .logs import LogManager
-from .pick import pick_folder
+from .pick import pick_folder, pick_html_file
 from .supervisor import ActionError, Supervisor
 
 DIST_DIR = Path(__file__).parent / "web" / "dist"
@@ -227,6 +227,53 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
             raise HTTPException(500, str(e)) from e
         return {"path": path, "detected": detect(Path(path)) if path else None}
 
+    # ----- 小工具 -----
+
+    @app.get("/api/tools")
+    def list_tools():
+        cfg = state.config()
+        return {"tools": [t.to_dict() for t in cfg.tools]}
+
+    @app.post("/api/tools", status_code=201)
+    def create_tool(body: dict = Body(...)):
+        name = str(body.get("name", "")).strip()
+        raw_file = str(body.get("file", "")).strip()
+        desc = body.get("desc")
+        desc_str = str(desc).strip() if desc else None
+
+        if not name:
+            raise HTTPException(400, "缺少工具名称")
+        if not raw_file:
+            raise HTTPException(400, "缺少文件路径")
+
+        cfg = state.config()
+        try:
+            tool = append_tool_to_yaml(cfg.path, name=name, file_str=raw_file, desc=desc_str)
+        except Exception as e:
+            raise HTTPException(500, f"保存小工具失败：{e}") from e
+
+        state.watcher.reload()
+        return tool.to_dict()
+
+    @app.post("/api/tools/pick-file")
+    def pick_file_endpoint():
+        initial = _common_parent(state.config())
+        try:
+            path = pick_html_file(initial)
+        except RuntimeError as e:
+            raise HTTPException(500, str(e)) from e
+        return {"path": path}
+
+    @app.get("/view-tool/{tool_id}", include_in_schema=False)
+    def view_tool(tool_id: str):
+        cfg = state.config()
+        target = next((t for t in cfg.tools if t.id == tool_id), None)
+        if not target:
+            raise HTTPException(404, f"找不到该工具：{tool_id}")
+        if not target.file.is_file():
+            raise HTTPException(404, f"文件不存在：{target.file}")
+        return FileResponse(str(target.file), media_type="text/html")
+
     # ----- 日志 -----
 
     @app.get("/api/projects/{project_id}/logs")
@@ -347,5 +394,7 @@ def _config_dict(cfg: Config) -> dict:
         "path": str(cfg.path),
         "panel": {"port": cfg.panel.port, "open_browser": cfg.panel.open_browser},
         "projects": [p.to_dict() for p in cfg.projects],
+        "groups": cfg.groups,
+        "tools": [t.to_dict() for t in cfg.tools],
         "errors": cfg.errors,
     }

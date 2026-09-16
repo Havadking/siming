@@ -5,6 +5,7 @@ import { GroupHeader, NewGroupRow } from './components/GroupHeader'
 import { LogDrawer } from './components/LogDrawer'
 import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard'
 import { ProjectDialog } from './components/ProjectDialog'
+import { ToolsDropdown } from './components/ToolsDropdown'
 import { Button } from './components/ui'
 import { usePolling } from './hooks/usePolling'
 import { bytes } from './lib/format'
@@ -259,6 +260,7 @@ export default function App() {
           </span>
         )}
         <span className="grow" />
+        <ToolsDropdown />
         <Button size="sm" variant="primary" onClick={() => setDialog({ editing: null })}><Plus />新增</Button>
         <Button size="sm" onClick={startAll} disabled={!anyStartable}><Play />全部启动</Button>
         <Button size="sm" onClick={stopAll} disabled={!anyLive}><Square />全部停止</Button>

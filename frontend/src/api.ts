@@ -112,4 +112,19 @@ export const api = {
   orderGroups: (names: string[]) => json<unknown>('/api/groups/order', 'POST', names),
   detect: (cwd: string) => req<Detected>(`/api/detect?cwd=${encodeURIComponent(cwd)}`),
   pickFolder: (initial: string | null) => json<{ path: string | null; detected: Detected | null }>('/api/pick-folder', 'POST', { initial }),
+  // 小工具
+  tools: () => req<{ tools: Tool[] }>('/api/tools'),
+  addTool: (data: { name: string; file: string; desc?: string | null }) =>
+    json<Tool>('/api/tools', 'POST', data),
+  pickToolFile: () => json<{ path: string | null }>('/api/tools/pick-file', 'POST', {}),
+  toolUrl: (id: string) => `/view-tool/${encodeURIComponent(id)}`,
 }
+
+export interface Tool {
+  id: string
+  name: string
+  file: string
+  desc: string | null
+  error: string | null
+}
+
