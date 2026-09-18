@@ -64,6 +64,17 @@ projects:
       PYTHONUTF8: "1"
     group: 常用
 
+  - id: jicui
+    name: 集萃
+    cwd: E:/personal/projects/telegram-export-viewer
+    cmd: uv run --no-sync jicui serve --no-browser    # 启动时重扫 AyuGram 导出目录，一两秒
+    port: 9200
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
 tools:
   - id: index
