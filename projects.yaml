@@ -53,6 +53,17 @@ projects:
     port: 8964
     group: 常用
 
+  - id: rixing
+    name: 日省
+    cwd: E:/personal/projects/trade-journal
+    cmd: uv run --no-sync rixing serve --no-browser
+    port: 9100
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
 tools:
   - id: index
