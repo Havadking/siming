@@ -40,6 +40,7 @@
 - **开机自启**：一条命令注册登录时任务计划，面板和标了 `autostart` 的项目跟着起，没有任何窗口弹出。
 - **配置即文件**：`projects.yaml` 改完保存即生效，不用重启面板。
 - **不用碰文件也行**（v0.2）：页面上「新增 / 编辑 / 删除」直接写回 `projects.yaml`，注释和顺序原样保留。选一个目录，看到 `package.json` / `pyproject.toml` 自动填好命令、端口、名字。卡片可以拖着排序、拖到别的组；组标题点一下折叠，⋯ 里改名 / 上下移 / 删除，底部「新建分组」。
+- **更懂项目**（v0.3）：卡片上多一行 git——分支、几处未提交、领先/落后几个提交、最近一次提交是多久前（只看不动，30s 刷一轮，页面没开就不跑）。内存和 CPU 数字旁边各一条最近 10 分钟的迷你折线。⋯ 里「在终端打开」（`wt -d <cwd>`）。配 `health: /api/health` 的项目，「在线」看这个地址返回 2xx 而不是端口有没有人听——vite 在预构建完之前端口就开了，uvicorn 的 lifespan 没跑完也在 LISTEN，端口通不等于能用。
 
 ## 它不做什么
 
@@ -73,6 +74,7 @@ projects:
     cwd: E:/personal/projects/video-summarizer
     cmd: uv run --no-sync vsum ui --no-browser
     port: 7860                      # 探测「在线」+ 生成「打开」链接
+    health: /api/health             # 可省。配了就用「这个地址返回 2xx/3xx」判在线，不看端口；相对端口的路径或完整 URL
     autostart: true                 # 面板启动时跟着起
     restart: on-failure             # on-failure | never
     group: 常用                     # 可省；有则按组分块
@@ -101,6 +103,7 @@ projects:
 - 项目里写 `python` 解析到的是**系统** Python，不是面板自己的 venv——面板会把自己的 `.venv/Scripts` 从 PATH 里洗掉，也不传 `VIRTUAL_ENV`。
 - 校验失败（`cwd` 不存在、端口冲突、`env_file` 缺失……）只影响那一个项目，卡片半透明并显示原因，其他照常。
 - `url_pattern`：有些服务的地址每次启动都变（随机端口、一次性 token），写一个带捕获组的正则，面板从它的 stdout 里捞出来当「打开」链接，面板重启后也记得。
+- `health`：端口通不等于服务就绪。写了它，进程活着但检查没过就一直是「启动中」（60s 后变黄「健康检查没过：HTTP 503」），卡片上会显示原因和响应耗时。检查 2s 一轮、超时 3s、不走系统代理。
 - `npx` 项目加 `-y`：包没缓存时 npx 会问「要装吗」，面板给子进程的 stdin 是空的，会卡死在那里。
 - `uv` 项目请写 `--no-sync`：项目常驻时 `uv sync` 会失败，要改依赖先在面板里停掉它。
 
@@ -125,9 +128,9 @@ uv run devpanel uninstall-startup    # 删掉
 
 | 状态 | 判据 |
 |---|---|
-| 在线 `running` | 进程活着，端口通 |
-| 启动中 `starting` | 进程活着，端口没通，< 60s |
-| 端口没开 `unhealthy` | 进程活着，端口 60s 还没通——多半是 `port` 写错了 |
+| 在线 `running` | 进程活着，端口通；配了 `health` 则是健康检查通过 |
+| 启动中 `starting` | 进程活着，端口没通（或健康检查没过），< 60s |
+| 端口没开 `unhealthy` | 进程活着，端口 60s 还没通——多半是 `port` 写错了；配了 `health` 则显示「健康检查没过：HTTP 503」之类 |
 | 已停止 `stopped` | 退出码 0，或你点的停止 |
 | 异常退出 `exited` | 退出码 ≠ 0，`restart: never` |
 | 等待重启 `restarting` | 非零退出，正在退避 |
@@ -144,7 +147,7 @@ uv run devpanel uninstall-startup    # 删掉
 | POST | `/api/projects/start-all` · `stop-all` | |
 | GET | `/api/projects/{id}/logs?lines=200` | 内存环形缓冲里取 |
 | GET | `/api/projects/{id}/logs/stream` | SSE，先回放 200 行再持续推 |
-| POST | `/api/projects/{id}/open-folder` · `open-editor` · `open-log-file` | |
+| POST | `/api/projects/{id}/open-folder` · `open-terminal` · `open-editor` · `open-log-file` | 终端是 `wt -d <cwd>`，没装 Windows Terminal 退回 `cmd` |
 | POST | `/api/projects` · PUT / DELETE `/api/projects/{id}` | 写回 `projects.yaml`；删除时在跑的返回 409 |
 | POST | `/api/projects/validate` | 表单干跑校验，`{hard, soft}`：硬错误挡保存，软错误只是卡片标红 |
 | POST | `/api/projects/order` | `[{id, group}]`，拖拽后重排 / 换组 |
@@ -165,6 +168,8 @@ src/devpanel/
   detect.py       从目录猜命令 / 端口；pick.py 弹系统选目录框
   supervisor.py   Runtime + 状态机 + 杀树 + 退避重启 + 认领
   logs.py         滚动文件 + 环形缓冲 + SSE 订阅
+  gitinfo.py      每个 cwd 的分支 / 未提交 / 最近提交，后台 30s 刷一轮
+  health.py       健康检查 URL 的 HTTP 探测，后台 2s 一轮
   api.py          FastAPI 路由 + 静态前端
   cli.py          serve / restart / stop / install-startup / uninstall-startup
   web/dist/       前端构建产物，随包走
@@ -183,9 +188,7 @@ npm run build                 # 产物进 src/devpanel/web/dist
 
 ## 之后
 
-- 卡片显示 git 分支 / 未提交改动
-- 健康检查 URL 替代纯端口探测
-- 优雅停止（`CTRL_BREAK` 先礼后兵）
+- 优雅停止（`CTRL_BREAK` 先礼后兵，或约定 `stop_cmd`）
 
 ## License
 

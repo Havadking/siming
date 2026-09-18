@@ -197,6 +197,8 @@ devpanel/
     config.py               # 读、校验、热重载
     supervisor.py           # Runtime + 状态机 + 认领
     logs.py                 # 文件滚动 + 环形缓冲 + SSE 订阅
+    gitinfo.py              # v0.3：每个 cwd 的 git 分支 / 未提交 / 最近提交，后台缓存
+    health.py               # v0.3：健康检查 URL 的 HTTP 探测
     api.py                  # 路由 + 静态文件
     web/dist/               # 前端构建产物，随包走，跑面板不需要 Node
   frontend/                 # React + Vite + Tailwind 4 + lucide（和 vsum 同一套）
@@ -305,11 +307,7 @@ frontend/src/
 
 **v0.2 — 不用碰文件**（已做，见第 9 节）
 
-**v0.3 — 更懂项目**
-- 每张卡片显示 git 分支、是否有未提交改动、最近一次 commit 时间（`git` 子进程，30s 刷一次）
-- 「在终端打开」：`wt -d <cwd>`
-- 健康检查 URL（`health: /api/health`）替代纯端口探测
-- 内存 / CPU 迷你折线（最近 10 分钟，前端 ring buffer，不落盘）
+**v0.3 — 更懂项目**（已做，见第 10 节）
 
 **v0.4 — 优雅停止**
 - 面板以「有控制台但隐藏」的方式启动，子进程共享控制台，`CTRL_BREAK` 先礼后兵
@@ -403,3 +401,90 @@ groups: [常用, 监控, 开发]
 - 编辑 `panel:` 段（端口、open_browser）。改面板端口要重启面板，界面上改没意义。
 - 多选批量。
 - 撤销。yaml 在 git 里，要撤销 `git diff` 看。
+
+---
+
+## 10. v0.3 设计：更懂项目
+
+v0.2 之后面板能管项目的启停和清单；v0.3 让它多知道一点每个项目「现在是什么样」：
+代码在哪个分支、有没有没提交的改动、进程到底健康不健康、最近十分钟资源曲线长什么样。
+四件事互相独立，都不改 v0.1/v0.2 的状态机和文件格式，只加字段。
+
+### 10.1 git 信息
+
+新模块 `gitinfo.py`。每个项目的 `cwd` 跑两条命令：
+
+```
+git status --porcelain=v2 --branch     → 分支 / detached / 未提交条数 / ahead-behind
+git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
+```
+
+- 环境里塞 `GIT_OPTIONAL_LOCKS=0`：`git status` 顺手刷新索引时会写 `index.lock`，
+  用户正在终端里 `git commit` 会撞上「index.lock exists」。关掉可选锁就不会。
+- `CREATE_NO_WINDOW`，超时 10s。`git` 没装、目录不是仓库（退出码 128）→ `null`，卡片上不显示这一行。
+- 空仓库（还没有提交）`git log` 失败，`commit_at` 为空，其他照常。
+
+`GitCache`：进程级缓存，一条后台线程按 30s 一轮刷新所有项目的 cwd。两个细节：
+
+- **没人看就不跑**。每次 `/api/projects` 读缓存时记一下时间，超过 90s 没人读（页面关了、在后台）线程就空转，
+  不在后台每半分钟敲一遍磁盘。页面回来第一次读会触发立即刷新。
+- 新加的项目（缓存里没有的 cwd）下一个 tick 就刷，不用等 30s；删掉的项目缓存顺手丢掉。
+
+快照里每个项目多一个 `git` 字段：
+
+```json
+{"branch": "main", "detached": false, "dirty": 3, "ahead": 1, "behind": 0,
+ "commit_at": 1758160000, "commit_msg": "fix: …", "error": null}
+```
+
+卡片第四行：`⎇ main · ●3 · 2 小时前`。`●3` 用 warn 色表示 3 条未提交改动，干净时不显示；
+`↑1 ↓2` 是 ahead / behind；detached 时显示短 sha 而不是分支名；hover 看提交标题。
+不是仓库的卡片没有这一行——按钮行改成 `margin-top: auto` 贴底，同一行的卡片高度仍然对齐。
+
+### 10.2 在终端打开
+
+`POST /api/projects/{id}/open-terminal`：`wt -d <cwd>`（Windows Terminal），找不到 `wt` 退回
+`cmd.exe`（`CREATE_NEW_CONSOLE`，cwd 设好）。⋯ 菜单里加一项，放在「打开目录」和「在 VS Code 打开」之间。
+不传命令进去——终端是让人手动干活的，不是又一个启动入口。
+
+### 10.3 健康检查 URL
+
+```yaml
+  - id: api
+    port: 8000
+    health: /api/health          # 相对端口；也可以写完整 http://… 地址
+```
+
+端口通不等于服务就绪：vite 在依赖预构建完之前端口就开了，uvicorn 的 lifespan 还没跑完也在 LISTEN。
+配了 `health` 的项目，「在线」的判据从「端口通」换成「这个地址返回 2xx/3xx」：
+
+| 进程活着 | 没配 health | 配了 health |
+|---|---|---|
+| running | 端口通 | 健康检查通过（且检查时间晚于本次启动） |
+| starting | 端口不通，< 60s | 检查没过，< 60s |
+| unhealthy | 端口不通，≥ 60s | 检查没过，≥ 60s，卡片上显示原因（`HTTP 503` / `连接被拒绝` / `超时`）|
+
+新模块 `health.py`：`HealthChecker` 一条后台线程，2s 一轮，只查「有 `health` 且进程活着（或端口有人听）」的项目；
+上次通过的 5s 查一次，没过的 2s 查一次，启动阶段状态翻绿快一点。检查用 `urllib`，超时 3s（Windows 上 loopback 的「连接被拒绝」要 SYN 重试约 2s 才报出来，再短就分不清是拒绝还是超时），
+**显式关掉代理**（`ProxyHandler({})`——Windows 系统代理开着时 `urllib` 会把 127.0.0.1 也送去代理），
+线程池并发 4 个，一个慢项目不拖住别人。结果不落盘，面板重启后从头查。
+
+`health` 是相对路径但项目没写 `port` 是配置错误（软错误，允许保存）。快照里多 `health_result`：
+`{ok, detail, checked_at, latency_ms}`，`external` 实例也查、也显示，但状态仍然是 `external`。
+
+### 10.4 内存 / CPU 迷你折线
+
+纯前端：`useHistory` 钩子把每次轮询拿到的 `rss` / `cpu` 按项目塞进一个 ring buffer（最近 10 分钟，2s 一个点，
+最多 300 个），项目不在跑就把它的历史清掉。不落盘、不加接口——刷新页面就从头画，这是有意的：
+它回答的是「刚才这几分钟发生了什么」，不是监控系统。
+
+画法：`<Sparkline>` 一个 inline SVG，56×16，`preserveAspectRatio="none"`。内存按 min–max 缩放
+（但最小量程是最大值的 5%，不然稳定在 400 MB 的项目会把 1 MB 的抖动画成山峰）；CPU 从 0 起算。
+轮询暂停（页面在后台）造成的时间断档超过 6s 就断线不连。放在第三行数字旁边：`412 MB ▁▂▃▅ · 0.3% ▁▁▂▁`，
+两个点以下不画。
+
+### 10.5 不做
+
+- git 操作（commit / pull / 切分支）。面板只看不动，要动去终端——所以有 10.2。
+- 健康检查失败自动重启。「进程活着但不健康」大多是配置错、依赖没起，重启没用，标黄让人看到就行。
+- 历史曲线落盘。

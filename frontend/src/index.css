@@ -130,9 +130,22 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .proj .port.off { color: var(--faint); }
 .proj .l2 { color: var(--ink-2); font-size: 13px; padding-left: 18px; min-height: 20px; }
 .proj .l2.bad { color: var(--bad); }
-.proj .l3 { color: var(--mute); font-size: 12px; padding-left: 18px; min-height: 18px; }
+.proj .l3 { color: var(--mute); font-size: 12px; padding-left: 18px; min-height: 18px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.proj .l3 .sep, .proj .l4 .sep { color: var(--faint); }
+.spark { width: 44px; height: 14px; flex: none; overflow: visible; }
+.spark path { stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.spark.mem path { stroke: var(--info); }
+.spark.cpu path { stroke: var(--ok); }
+/* git 行：分支 · ●未提交 · ↑↓ · 最近提交 */
+.proj .l4 { display: flex; align-items: center; gap: 5px; padding-left: 18px; font-size: 11.5px; color: var(--mute); min-height: 18px; min-width: 0; }
+.proj .l4 svg { width: 12px; height: 12px; flex: none; color: var(--faint); }
+.proj .l4 .branch { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.proj .l4 .branch.detached { color: var(--warn); }
+.proj .l4 .dirty { color: var(--warn); }
+.proj .l4 .ab { color: var(--info); }
+.proj .l4 .bad { color: var(--bad); }
 .proj .act-err { margin: 2px 0 0 18px; color: var(--bad); font-size: 12px; }
-.proj .actions { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.proj .actions { display: flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 8px; }   /* 贴底：没有 git 行的卡片按钮也和邻居对齐 */
 .proj .hint { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; color: var(--mute); box-shadow: var(--shadow); z-index: 6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .proj:hover .hint { display: block; }
 

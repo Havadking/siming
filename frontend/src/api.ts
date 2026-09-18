@@ -15,6 +15,8 @@ export interface Project {
   group: string | null
   env_file: string | null
   url_pattern: string | null
+  health: string | null            // 配置里写的：相对端口的路径或完整 URL
+  health_url: string | null        // 解析好的完整地址
   error: string | null
   status: Status
   pid: number | null
@@ -27,6 +29,27 @@ export interface Project {
   restart_due: number | null
   failures: number
   logs_available: boolean
+  health_result: HealthResult | null   // 配了 health 且查过才有
+  git: GitInfo | null                  // 不是 git 仓库 / git 没装 → null
+}
+
+export interface HealthResult {
+  ok: boolean
+  detail: string          // "200" / "HTTP 503" / "连接被拒绝" / "超时 3s"
+  checked_at: number
+  latency_ms: number | null
+}
+
+export interface GitInfo {
+  branch: string | null   // detached 时是短 sha
+  detached: boolean
+  dirty: number           // 未提交条数（改动 + 未跟踪）
+  ahead: number
+  behind: number
+  upstream: string | null
+  commit_at: number | null
+  commit_msg: string | null
+  error: string | null
 }
 
 export interface ProjectsResponse {
@@ -47,6 +70,7 @@ export interface ProjectForm {
   restart: 'on-failure' | 'never'
   url: string
   url_pattern: string
+  health: string
   env_file: string
   env: Record<string, string>
 }
@@ -98,6 +122,7 @@ export const api = {
   stopAll: () => post('/api/projects/stop-all'),
   openFolder: (id: string) => post(`/api/projects/${id}/open-folder`),
   openEditor: (id: string) => post(`/api/projects/${id}/open-editor`),
+  openTerminal: (id: string) => post(`/api/projects/${id}/open-terminal`),
   openLogFile: (id: string) => post(`/api/projects/${id}/open-log-file`),
   logStreamUrl: (id: string) => `/api/projects/${id}/logs/stream`,
   // 面板自己

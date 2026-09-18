@@ -5,7 +5,7 @@ import { Button } from './ui'
 
 const EMPTY: ProjectForm = {
   id: '', name: '', cwd: '', cmd: '', port: '', group: '',
-  autostart: false, restart: 'never', url: '', url_pattern: '', env_file: '', env: {},
+  autostart: false, restart: 'never', url: '', url_pattern: '', health: '', env_file: '', env: {},
 }
 
 function fromProject(p: Project): ProjectForm {
@@ -13,7 +13,7 @@ function fromProject(p: Project): ProjectForm {
     id: p.id, name: p.name, cwd: p.cwd, cmd: p.cmd, port: p.port == null ? '' : String(p.port),
     group: p.group ?? '', autostart: p.autostart, restart: p.restart,
     url: p.url && p.port && p.url === `http://127.0.0.1:${p.port}` ? '' : (p.url ?? ''),
-    url_pattern: p.url_pattern ?? '', env_file: p.env_file ?? '', env: p.env ?? {},
+    url_pattern: p.url_pattern ?? '', health: p.health ?? '', env_file: p.env_file ?? '', env: p.env ?? {},
   }
 }
 
@@ -39,7 +39,7 @@ export function ProjectDialog({ editing, groups, onClose, onSaved }: {
 }) {
   const [f, setF] = useState<ProjectForm>(() => (editing ? fromProject(editing) : EMPTY))
   const [envText, setEnvText] = useState(() => (editing ? envToText(editing.env ?? {}) : ''))
-  const [adv, setAdv] = useState(() => !!editing && !!(f.url || f.url_pattern || f.env_file || envText))
+  const [adv, setAdv] = useState(() => !!editing && !!(f.url || f.url_pattern || f.health || f.env_file || envText))
   const [val, setVal] = useState<Validation | null>(null)
   const [detected, setDetected] = useState<Detected | null>(null)
   const [busy, setBusy] = useState<'detect' | 'pick' | 'save' | null>(null)
@@ -188,6 +188,9 @@ export function ProjectDialog({ editing, groups, onClose, onSaved }: {
               </label>
               <label className="fld"><span>链接正则</span>
                 <input className="mono" value={f.url_pattern} placeholder="从 stdout 里捞地址，如 listening on (http\S+)" spellCheck={false} onChange={(e) => set('url_pattern', e.target.value)} />
+              </label>
+              <label className="fld"><span>健康检查</span>
+                <input className="mono" value={f.health} placeholder="/api/health（相对端口）或完整 URL；配了就用它判「在线」，不看端口" spellCheck={false} onChange={(e) => set('health', e.target.value)} />
               </label>
               <label className="fld"><span>env 文件</span>
                 <input className="mono" value={f.env_file} placeholder=".env（相对目录；放密码用）" spellCheck={false} onChange={(e) => set('env_file', e.target.value)} />

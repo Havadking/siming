@@ -7,6 +7,7 @@ import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard
 import { ProjectDialog } from './components/ProjectDialog'
 // import { ToolsDropdown } from './components/ToolsDropdown'
 import { Button } from './components/ui'
+import { useHistory } from './hooks/useHistory'
 import { usePolling } from './hooks/usePolling'
 import { bytes } from './lib/format'
 
@@ -73,6 +74,7 @@ export default function App() {
   }, [])
 
   const serverProjects = useMemo(() => data?.projects ?? [], [data])
+  const history = useHistory(data?.projects)   // 最近 10 分钟的 rss / cpu，画迷你折线
   const cfgErrors = data?.errors ?? []
   const projects = useMemo(() => {
     if (!localOrder) return serverProjects
@@ -127,6 +129,7 @@ export default function App() {
   const menu = useCallback(async (p: Project, k: MenuKey) => {
     try {
       if (k === 'folder') await api.openFolder(p.id)
+      else if (k === 'terminal') await api.openTerminal(p.id)
       else if (k === 'editor') await api.openEditor(p.id)
       else if (k === 'logfile') await api.openLogFile(p.id)
       else if (k === 'edit') setDialog({ editing: p })
@@ -344,7 +347,7 @@ export default function App() {
             if (!isCollapsed) {
               for (const p of ps) {
                 items.push(
-                  <ProjectCard key={p.id} p={p} now={now}
+                  <ProjectCard key={p.id} p={p} now={now} history={history.get(p.id)}
                     pending={pending[p.id] ?? null} error={cardErr[p.id] ?? null}
                     onAction={(a) => { void act(p.id, a) }}
                     onLogs={() => setLogId(p.id)}

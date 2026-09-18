@@ -189,3 +189,50 @@ def test_manual_stop_is_remembered_across_panel_restart(sup, tmp_path):
     sup3 = Supervisor(tmp_path / "state", LogManager(tmp_path / "logs"))
     assert sup3.manual_stopped == set()
     sup2.stop(p)
+
+
+def test_health_url_overrides_port(sup, tmp_path):
+    """配了 health：端口通了也不算在线，要健康检查通过；检查结果得是本次启动之后的。"""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class H(BaseHTTPRequestHandler):
+        code = 503
+
+        def do_GET(self):
+            self.send_response(H.code)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        port = free_port()
+        p = project(tmp_path, "h", LISTEN.format(port=port), port)
+        p.health = "/health"
+        p.health_url = f"http://127.0.0.1:{srv.server_port}/health"
+        # 启动前塞一个「通过」的旧结果：启动会把它清掉，不能靠它翻绿
+        sup.health.check_now("h", p.health_url.replace("/health", "/"))
+        H.code = 200
+        sup.health.check_now("h", p.health_url)
+        assert sup.health.result("h").ok
+        sup.start(p)
+        assert sup.health.result("h") is None
+        assert wait_for(lambda: port in listening_ports())
+        assert status(sup, p)["status"] == "starting"          # 端口通了，但还没检查过
+        assert sup.health_targets([p]) == [("h", p.health_url)]
+        H.code = 503
+        sup.health.check_now("h", p.health_url)
+        d = status(sup, p)
+        assert d["status"] == "starting" and d["health_result"]["detail"] == "HTTP 503"
+        H.code = 200
+        sup.health.check_now("h", p.health_url)
+        d = status(sup, p)
+        assert d["status"] == "running" and d["health_result"]["ok"]
+        sup.stop(p)
+        assert sup.health_targets([p]) == []
+    finally:
+        srv.shutdown()

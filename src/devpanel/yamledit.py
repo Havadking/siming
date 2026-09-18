@@ -37,7 +37,7 @@ class EditError(Exception):
 def clean(raw: dict) -> dict:
     """表单送来的原始映射 → 要写进 yaml 的映射。空值不写，默认值不写，文件保持干净。"""
     out: dict = {}
-    for k in ("id", "name", "cwd", "cmd", "group", "url", "url_pattern", "env_file"):
+    for k in ("id", "name", "cwd", "cmd", "group", "url", "url_pattern", "health", "env_file"):
         v = raw.get(k)
         if v is None:
             continue

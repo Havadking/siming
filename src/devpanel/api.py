@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from . import __version__, yamledit
 from .config import Config, ConfigWatcher, Project, Tool, append_tool_to_yaml, validate_raw
 from .detect import detect
+from .gitinfo import GitCache
 from .logs import LogManager
 from .pick import pick_folder, pick_html_file
 from .supervisor import ActionError, Supervisor
@@ -30,6 +31,20 @@ class PanelState:
         cfg = self.watcher.current()
         self.logs = LogManager(cfg.base_dir / "logs")
         self.supervisor = Supervisor(cfg.base_dir / "state", self.logs)
+        self.git = GitCache()
+
+    def start_background(self) -> None:
+        """v0.3 的两条后台线程：git 信息 30s 一轮（没人看不跑）、健康检查 2s 一轮。"""
+        self.git.start(lambda: [p.cwd for p in self.config().projects if p.cwd.is_dir()])
+        self.supervisor.health.start(lambda: self.supervisor.health_targets(self.config().projects))
+
+    def snapshot(self, projects: list[Project]) -> list[dict]:
+        snap = self.supervisor.snapshot(projects)
+        by_id = {p.id: p for p in projects}
+        for d in snap:
+            p = by_id[d["id"]]
+            d["git"] = self.git.get(p.cwd) if p.cwd.is_dir() else None
+        return snap
 
     def config(self) -> Config:
         return self.watcher.current()
@@ -76,6 +91,7 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        state.start_background()
         if autostart:
             threading.Thread(target=state.boot, daemon=True).start()
         yield
@@ -89,7 +105,7 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
     @app.get("/api/projects")
     def list_projects():
         cfg = state.config()
-        return {"projects": state.supervisor.snapshot(cfg.projects), "errors": cfg.errors, "groups": cfg.group_order()}
+        return {"projects": state.snapshot(cfg.projects), "errors": cfg.errors, "groups": cfg.group_order()}
 
     @app.post("/api/projects/start-all")
     def start_all():
@@ -319,6 +335,21 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
             raise HTTPException(404, f"目录不存在：{p.cwd}")
         os.startfile(str(p.cwd))  # type: ignore[attr-defined]
         return {"ok": True}
+
+    @app.post("/api/projects/{project_id}/open-terminal")
+    def open_terminal(project_id: str):
+        """wt -d <cwd>；没装 Windows Terminal 就开一个 cmd 窗口。不传命令进去，终端是让人手动干活的。"""
+        p = state.project(project_id)
+        if not p.cwd.is_dir():
+            raise HTTPException(404, f"目录不存在：{p.cwd}")
+        wt = shutil.which("wt")
+        if wt:
+            _open_with([wt, "-d", str(p.cwd)], p.cwd)
+            return {"ok": True, "terminal": "wt"}
+        if os.name != "nt":
+            raise HTTPException(404, "找不到 wt（Windows Terminal）")
+        subprocess.Popen(["cmd.exe"], cwd=str(p.cwd), creationflags=subprocess.CREATE_NEW_CONSOLE)
+        return {"ok": True, "terminal": "cmd"}
 
     @app.post("/api/projects/{project_id}/open-editor")
     def open_editor(project_id: str):

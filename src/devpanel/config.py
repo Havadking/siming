@@ -33,6 +33,8 @@ class Project:
     group: str | None = None
     env_file: Path | None = None                    # KEY=VALUE 文件，spawn 时读；放密码用，不进 git
     url_pattern: re.Pattern[str] | None = None      # 在 stdout 里匹配，捕获组 1 当「打开」链接（带 token 的地址）
+    health: str | None = None                       # 健康检查：相对端口的路径（/api/health）或完整 URL
+    health_url: str | None = None                   # 解析好的完整地址；有它就用 HTTP 响应代替端口探测
     argv: list[str] = field(default_factory=list)   # 解析好的命令，argv[0] 已经是绝对路径
     error: str | None = None                        # 配置错误原因；非空则不允许启动
 
@@ -58,6 +60,8 @@ class Project:
             "group": self.group,
             "env_file": str(self.env_file) if self.env_file else None,
             "url_pattern": self.url_pattern.pattern if self.url_pattern else None,
+            "health": self.health,
+            "health_url": self.health_url,
             "error": self.error,
         }
 
@@ -225,6 +229,15 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
         p.env_file = ef   # 存不存在不在这里查：建 .env 不会改 yaml 的 mtime，放到 snapshot/start 时现查
     if p.url is None and p.port is not None:
         p.url = f"http://127.0.0.1:{p.port}"
+    if raw.get("health"):
+        h = str(raw["health"]).strip()
+        p.health = h
+        if h.startswith(("http://", "https://")):
+            p.health_url = h
+        elif p.port is None:
+            problems.append("health 是相对路径时需要 port")
+        else:
+            p.health_url = f"http://127.0.0.1:{p.port}{'' if h.startswith('/') else '/'}{h}"
     if problems:
         p.error = "；".join(problems)
     return p
@@ -389,7 +402,7 @@ def append_tool_to_yaml(config_path: Path, name: str, file_str: str, desc: str |
     return _parse_tool({"id": final_id, "name": name, "file": file_str, "desc": desc}, config_path.parent)
 
 
-KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "env_file", "env")
+KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "health", "env_file", "env")
 
 
 def validate_raw(raw: dict, cfg: Config, *, editing: str | None = None) -> tuple[list[str], list[str]]:

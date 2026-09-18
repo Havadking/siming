@@ -158,3 +158,26 @@ def test_groups_order(tmp_path):
     cfg = load(p)
     assert cfg.groups == ["b", "a", "empty"]
     assert cfg.group_order() == ["b", "a", "empty", "c"]   # 没列的补在后面
+
+
+def test_health_key(tmp_path):
+    p = write(tmp_path, f"""
+    projects:
+      - id: a
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        port: 5000
+        health: api/health
+      - id: b
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        health: https://example.com/ping
+      - id: c
+        cwd: {tmp_path.as_posix()}
+        cmd: python -V
+        health: /ping
+    """)
+    a, b, c = load(p).projects
+    assert a.health == "api/health" and a.health_url == "http://127.0.0.1:5000/api/health"
+    assert b.health_url == "https://example.com/ping" and b.error is None
+    assert c.health_url is None and "health 是相对路径时需要 port" in c.error

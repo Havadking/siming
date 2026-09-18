@@ -1,7 +1,9 @@
 import { useRef } from 'react'
-import { Code2, Copy, ExternalLink, FileText, FolderOpen, GripVertical, Pencil, Play, RotateCw, ScrollText, Square, Trash2 } from 'lucide-react'
+import { Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, GripVertical, Pencil, Play, RotateCw, ScrollText, Square, Terminal, Trash2 } from 'lucide-react'
 import type { Project } from '../api'
+import type { History } from '../hooks/useHistory'
 import { ago, bytes, duration } from '../lib/format'
+import { Sparkline } from './Sparkline'
 import { STATUS_LABEL, StatusDot } from './StatusDot'
 import { Button, Menu } from './ui'
 
@@ -9,9 +11,9 @@ export type Action = 'start' | 'stop' | 'restart'
 
 const PENDING_LABEL: Record<Action, string> = { start: '正在启动…', stop: '正在停止…', restart: '正在重启…' }
 
-export type MenuKey = 'folder' | 'editor' | 'copy' | 'logfile' | 'edit' | 'delete'
+export type MenuKey = 'folder' | 'terminal' | 'editor' | 'copy' | 'logfile' | 'edit' | 'delete'
 
-export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, drag }: {
+export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, history, drag }: {
   p: Project
   pending: Action | null
   error: string | null
@@ -19,6 +21,7 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
   onLogs: () => void
   onMenu: (k: MenuKey) => void
   now: number
+  history?: History
   drag?: {
     dragging: boolean
     onStart: (e: React.DragEvent) => void
@@ -34,18 +37,50 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
 
   let line2: string
   if (pending) line2 = PENDING_LABEL[pending]
-  else if (s === 'starting') line2 = `启动中 · 已等 ${duration(p.uptime, { seconds: true })}`
+  else if (s === 'starting') {
+    const hr = p.health_result
+    line2 = `启动中 · 已等 ${duration(p.uptime, { seconds: true })}${p.health_url && hr && !hr.ok ? ` · 健康检查 ${hr.detail}` : ''}`
+  }
   else if (s === 'running' || s === 'external') line2 = `${STATUS_LABEL[s]} · ${duration(p.uptime)}`
-  else if (s === 'unhealthy') line2 = `进程在但端口 ${p.port} 没开 · ${duration(p.uptime)}`
+  else if (s === 'unhealthy') {
+    const hr = p.health_result
+    line2 = p.health_url && hr && !hr.ok
+      ? `健康检查没过：${hr.detail} · ${duration(p.uptime)}`
+      : `进程在但端口 ${p.port} 没开 · ${duration(p.uptime)}`
+  }
   else if (s === 'restarting') line2 = `${Math.max(0, Math.ceil((p.restart_due ?? now) - now))}s 后重启 · 第 ${p.restart_count} 次`
   else if (s === 'exited') line2 = `退出码 ${p.exit_code} · ${ago(p.exited_at)}`
   else if (s === 'crashed') line2 = `10 分钟内失败 ${p.failures} 次，已停止自动重启`
   else if (s === 'error') line2 = p.error ?? '配置错误'
   else line2 = p.exit_code != null && p.exited_at ? `已停止 · ${ago(p.exited_at)}` : '已停止'
 
+  const rssHist = history?.rss ?? []
+  const cpuHist = history?.cpu ?? []
+  const span = (h: typeof rssHist) => (h.length >= 2 ? `最近 ${duration(now - h[0].t)}` : '')
+  const vals = (h: typeof rssHist) => h.map((x) => x.v)
   const line3 = live
-    ? [bytes(p.rss), p.cpu != null ? `${p.cpu}%` : null, p.restart_count ? `重启 ${p.restart_count}` : null].filter(Boolean).join(' · ')
+    ? (
+      <>
+        <span>{bytes(p.rss)}</span>
+        <Sparkline data={rssHist} className="mem"
+          title={rssHist.length >= 2 ? `内存 ${span(rssHist)}：${bytes(Math.min(...vals(rssHist)))} – ${bytes(Math.max(...vals(rssHist)))}` : undefined} />
+        {p.cpu != null && (
+          <>
+            <span className="sep">·</span>
+            <span>{p.cpu}%</span>
+            <Sparkline data={cpuHist} floor className="cpu"
+              title={cpuHist.length >= 2 ? `CPU ${span(cpuHist)}：峰值 ${Math.max(...vals(cpuHist))}%` : undefined} />
+          </>
+        )}
+        {p.restart_count > 0 && <><span className="sep">·</span><span>重启 {p.restart_count}</span></>}
+        {p.health_result?.ok && p.health_result.latency_ms != null && (
+          <><span className="sep">·</span><span title={`健康检查 ${p.health_url} → ${p.health_result.detail}`}>健康 {p.health_result.latency_ms}ms</span></>
+        )}
+      </>
+    )
     : p.exit_code != null && s === 'stopped' ? `上次退出 ${p.exit_code}` : ' '
+
+  const g = p.git
 
   return (
     <div ref={el} className={`card proj${isErr ? ' cfg-err' : ''}${pending ? ' busy' : ''}${drag?.dragging ? ' dragging' : ''}`}
@@ -63,6 +98,21 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
       </div>
       <div className={`l2 ${isErr ? 'bad' : ''}`}>{line2}</div>
       <div className="l3 mono">{line3}</div>
+      {g && (
+        <div className="l4 git mono" title={g.error ?? (g.commit_msg ? `最近提交：${g.commit_msg}` : undefined)}>
+          <GitBranch />
+          <span className={`branch${g.detached ? ' detached' : ''}`}>{g.branch ?? '?'}</span>
+          {g.dirty > 0 && <span className="dirty" title={`${g.dirty} 处未提交改动`}>●{g.dirty}</span>}
+          {(g.ahead > 0 || g.behind > 0) && (
+            <span className="ab" title={g.upstream ? `相对 ${g.upstream}` : undefined}>
+              {g.ahead > 0 && `↑${g.ahead}`}{g.behind > 0 && `↓${g.behind}`}
+            </span>
+          )}
+          {g.error
+            ? <span className="bad">{g.error}</span>
+            : g.commit_at != null && <><span className="sep">·</span><span>{ago(g.commit_at)}</span></>}
+        </div>
+      )}
       {error && <div className="act-err">{error}</div>}
       <div className="actions">
         {!isErr && (live
@@ -94,6 +144,7 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
         <Menu items={[
           { label: '编辑', icon: <Pencil />, onClick: () => onMenu('edit') },
           { label: '打开目录', icon: <FolderOpen />, onClick: () => onMenu('folder') },
+          { label: '在终端打开', icon: <Terminal />, onClick: () => onMenu('terminal') },
           { label: '在 VS Code 打开', icon: <Code2 />, onClick: () => onMenu('editor') },
           { label: '打开日志文件', icon: <FileText />, onClick: () => onMenu('logfile') },
           { label: '复制命令', icon: <Copy />, onClick: () => onMenu('copy') },

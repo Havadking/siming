@@ -18,6 +18,7 @@ from pathlib import Path
 import psutil
 
 from .config import Project, clean_path, read_env_file
+from .health import HealthChecker
 from .logs import LogManager
 
 STARTING_GRACE = 60          # 进程活着但端口不通，超过这个秒数标 unhealthy
@@ -137,6 +138,7 @@ class Supervisor:
         self.state_dir = state_dir
         self.logs = logs
         self.runtimes: dict[str, Runtime] = {}
+        self.health = HealthChecker()                 # 配了 health: 的项目，在线判据看它；线程由 api 层 start
         self._procs: dict[int, psutil.Process] = {}   # cpu_percent 要两次采样，Process 对象得留着
         self._lock = threading.Lock()
         self._ncpu = psutil.cpu_count() or 1
@@ -267,6 +269,7 @@ class Supervisor:
             rt.exited_at = None
             rt.manual_stop = False
             rt.url = None
+            self.health.forget(project.id)   # 上一轮的检查结果不算，这次启动从头查
             if rt.unwatch:
                 rt.unwatch()
                 rt.unwatch = None
@@ -429,6 +432,24 @@ class Supervisor:
                 continue
         return rss, round(cpu / self._ncpu, 1)
 
+    def health_targets(self, projects: list[Project]) -> list[tuple[str, str]]:
+        """HealthChecker 这一轮要查谁：配了 health 且进程活着（或端口有人听）的项目。"""
+        out: list[tuple[str, str]] = []
+        ports: dict[int, int] | None = None
+        for p in projects:
+            if not p.health_url or p.runtime_error():
+                continue
+            rt = self.runtimes.get(p.id)
+            if rt and rt.alive():
+                out.append((p.id, p.health_url))
+                continue
+            if p.port:
+                if ports is None:
+                    ports = listening_ports()
+                if p.port in ports:
+                    out.append((p.id, p.health_url))
+        return out
+
     def snapshot(self, projects: list[Project]) -> list[dict]:
         ports = listening_ports()
         now = time.time()
@@ -449,6 +470,8 @@ class Supervisor:
                 "restart_due": None, "failures": len(rt.failures) if rt else 0,
                 "logs_available": bool(rt and rt.owned),
             }
+            hr = self.health.result(p.id) if p.health_url else None
+            d["health_result"] = hr.to_dict() if hr else None
             if err:
                 d["status"] = "error"
             elif rt and rt.alive():
@@ -456,7 +479,16 @@ class Supervisor:
                 d["uptime"] = now - (rt.started_at or now)
                 rss, cpu = self._tree_metrics(rt.pid)  # type: ignore[arg-type]
                 d["rss"], d["cpu"] = rss, cpu
-                if p.port is None or port_open:
+                if p.health_url:
+                    # 配了健康检查：要这次启动之后的一次通过才算在线，端口通不通不看。
+                    # 还没查过（面板刚重启认领回来的老进程）先按端口算，别闪一下黄
+                    if hr is None:
+                        healthy = d["uptime"] >= STARTING_GRACE and (p.port is None or port_open)
+                    else:
+                        healthy = hr.ok and hr.checked_at >= (rt.started_at or 0)
+                else:
+                    healthy = p.port is None or port_open
+                if healthy:
                     d["status"] = "running"
                 elif d["uptime"] < STARTING_GRACE:
                     d["status"] = "starting"
