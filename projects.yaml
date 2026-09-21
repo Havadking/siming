@@ -72,15 +72,8 @@ projects:
   - id: suishi
     name: 随拾
     cwd: E:/personal/projects/local-video-browser
-    cmd: npm run dev                        # package.json 里 serve -l 8964，改端口两边要一起改
+    cmd: npm run dev                        # node server.mjs：电脑端 localhost:8964 照旧；平板用 http://<本机IP>:8964，共享目录写在 local-video-browser/share.json（改完在这里重启）
     port: 8964
-    group: 浏览
-
-  - id: suishi-share
-    name: 随拾 · 局域网
-    cwd: E:/personal/projects/local-video-browser
-    cmd: npm run share                      # node server.mjs，共享目录 / 口令写在 local-video-browser/share.json（改完在这里重启）
-    port: 8970                              # 绑 0.0.0.0，平板用 http://<本机IP>:8970 访问
     autostart: true
     restart: on-failure
     group: 浏览
