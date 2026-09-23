@@ -68,6 +68,17 @@ projects:
       PYTHONUTF8: "1"
     group: 浏览
 
+  - id: guanlan
+    name: 观澜
+    cwd: E:/personal/projects/obsidian-digest
+    cmd: uv run --no-sync guanlan serve --no-browser   # 自带定时器：启动时补跑漏掉的日子，凌晨 4 点后处理前一天
+    port: 9300
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: suishi
     name: 随拾
