@@ -61,12 +61,13 @@ export interface Incoming {
   kind: 'upstream' | 'cloud'
   count: number                   // 还没进 HEAD 的非合并提交数
   at: number | null               // 其中最新一条的时间
+  behind_head: number             // 反过来：本地有、它没有的提交数；越大越旧、越可能冲突
   subjects: string[]              // 最多 8 条，新的在前
 }
 
 export interface MergeResult {
   merged: string[]
-  failed: { ref: string; message: string; conflicts: string[] } | null
+  failed: { ref: string; message: string; conflicts: string[] }[]   // 冲突的撤销掉、接着合后面的
   pushed: boolean
   push_error: string | null
   git: GitInfo | null

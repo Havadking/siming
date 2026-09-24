@@ -504,7 +504,7 @@ git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
 
 ```json
 {"ref": "origin/claude/modest-darwin-y2j841", "sha": "bdc3135…", "kind": "cloud",
- "count": 1, "at": 1758697666, "subjects": ["feat: 新增「我的评论」页…"]}
+ "count": 1, "at": 1758697666, "behind_head": 1, "subjects": ["feat: 新增「我的评论」页…"]}
 ```
 
 - `kind: "upstream"`：当前分支的上游落后（`behind > 0`）时算一条，别处推到 main 的也能一起拉下来。
@@ -512,6 +512,7 @@ git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
   那是云端会话的约定；`feature/*` 这类自己的分支不该被面板催着合。
 - 提交数用 `git log --right-only --cherry-pick --no-merges HEAD...<ref>`：内容已经在本地的（cherry-pick /
   rebase 过的）不算，一条不剩的分支不列。
+- `behind_head`：反过来数，本地有、它没有的提交数。分支越旧越大，合起来越可能冲突（谛听的 `init-671a6c` 是 28）。
 - 只读本地 refs，每 30s 随 git 信息一起刷；新不新看上次 fetch。
 
 **fetch**：后台线程每 10 分钟对所有项目 `git fetch --prune --quiet origin`（4 个并发、60s 超时），同样「没人看就不跑」，
@@ -524,7 +525,9 @@ git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
 ### 11.2 动：一键合并
 
 卡片 git 那行有待合并时多一个粉色小标 `☁ N`（N = 提交数，hover 看每个分支的最新标题），点开或 ⋯「同步云端改动…」
-弹窗，打开时先 fetch 一次。每个分支一行，可勾选、可忽略；下面两个选项（记在 localStorage）：
+弹窗，打开时先 fetch 一次。每个分支一行，可勾选、可忽略。最近提交超过 3 天的云端分支标「旧」、**默认不勾**——
+多半是放弃了的旧会话，第一次用时它默认勾上、排在前面先合、冲突，把真正想要的那个也挡住了。
+「落后本地 N」≥ 10 时标黄。下面两个选项（记在 localStorage）：
 
 - **合并后推送到 origin**，默认关。推当前分支，有上游 `git push`，没有 `git push -u origin <branch>`。
 - **合并后重启项目**，默认开，项目在跑时才可选。代码变了不重启不生效。
@@ -536,8 +539,9 @@ git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
    stash pop 冲突比合并冲突更难收拾。
 2. 按上游在前、云端分支从旧到新，逐个 `git merge --no-edit -m <消息> refs/remotes/<ref>`：
    能快进就快进，分叉了就生成合并提交，消息是「合并云端分支 claude/xxx」+ 每个提交标题一行。
-3. 某个分支冲突：记下冲突文件（`diff --diff-filter=U`），`merge --abort` 回到合它之前，**停下不合后面的**；
-   已经合成功的保留。弹窗里列出冲突文件，给「在终端打开」——冲突让人或本地 Claude 来解，面板不碰。
+3. 某个分支冲突：记下冲突文件（`diff --diff-filter=U`），`merge --abort` 回到合它之前，**接着合后面的**——
+   各分支互不依赖，abort 之后工作区是干净的。返回的 `failed` 是个列表。弹窗里逐个列出冲突文件，
+   给「在终端打开」——冲突让人或本地 Claude 来解，面板不碰；不要的就点「忽略」。
 
 同一个 cwd 的 fetch 和 merge 用一把锁串起来，后台 fetch 不会和手点的合并撞上。
 

@@ -147,7 +147,10 @@ def read_incoming(git: str, cwd: Path, upstream: str | None, behind: int,
             at = float(commits[0][0])
         except ValueError:
             at = None
+        # 反过来：HEAD 有、它没有的提交数。分支越旧这个越大，合起来越可能冲突
+        code, n = _run(git, cwd, "rev-list", "--count", f"{sha}..HEAD")
         result.append({"ref": ref, "sha": sha, "kind": kind, "count": len(commits), "at": at,
+                       "behind_head": int(n.strip()) if code == 0 and n.strip().isdigit() else 0,
                        "subjects": [msg for _, msg in commits[:MAX_SUBJECTS]]})
     # 上游在前，云端分支按最近提交从旧到新——合并也照这个顺序
     result.sort(key=lambda d: (d["kind"] != "upstream", d["at"] or 0))
@@ -220,10 +223,11 @@ def merge_refs(cwd: Path, refs: list[str], *, push: bool = False, git: str | Non
 
     前置：不是 detached、没有进行中的 merge/rebase/cherry-pick、已跟踪的文件没有未提交改动
     （未跟踪文件不管——真会被覆盖时 git 自己会拒绝，什么都不动）。不满足抛 MergeError。
-    某个 ref 冲突：`merge --abort` 回到合它之前，停下不再合后面的；之前合成功的保留。
+    某个 ref 冲突：`merge --abort` 回到合它之前，记下来，接着合后面的——各分支互不依赖，
+    一个旧分支冲突不该挡住别的。
     push=True 且至少合进一个：推当前分支（有上游就 `git push`，没有就 `git push -u origin <branch>`）。
 
-    返回 {merged: [ref], failed: {ref, message, conflicts} | None, pushed, push_error}。
+    返回 {merged: [ref], failed: [{ref, message, conflicts}], pushed, push_error}。
     """
     git = git or git_exe()
     if git is None:
@@ -246,7 +250,7 @@ def merge_refs(cwd: Path, refs: list[str], *, push: bool = False, git: str | Non
             raise MergeError(f"不认识的远端分支：{ref}")
 
     merged: list[str] = []
-    failed = None
+    failed: list[dict] = []
     for ref in refs:
         commits = _pending_commits(git, cwd, f"refs/remotes/{ref}")
         if not commits:
@@ -266,8 +270,7 @@ def merge_refs(cwd: Path, refs: list[str], *, push: bool = False, git: str | Non
         if _run(git, cwd, "rev-parse", "-q", "--verify", "MERGE_HEAD")[0] == 0:
             _run(git, cwd, "merge", "--abort")
         message = "有冲突，已撤销这次合并" if conflicts else (_last_line(err) or _last_line(out) or f"merge 退出码 {code}")
-        failed = {"ref": ref, "message": message, "conflicts": conflicts}
-        break
+        failed.append({"ref": ref, "message": message, "conflicts": conflicts})
 
     pushed, push_error = False, None
     if push and merged:

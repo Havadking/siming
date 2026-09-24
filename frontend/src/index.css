@@ -227,7 +227,8 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .incoming-list .ihead { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; min-width: 0; }
 .incoming-list .ihead input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; flex: none; }
 .incoming-list .ref { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.incoming-list .ihead .mute { white-space: nowrap; font-size: 12px; }
+.incoming-list .ihead .mute, .incoming-list .ihead .warn-text { white-space: nowrap; font-size: 12px; }
+.incoming-list .ihead .warn-text { color: var(--warn); }
 .incoming-list .linkbtn { margin-left: 0; }
 .subjects { margin: 6px 0 0 22px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--ink-2); }
 .subjects li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

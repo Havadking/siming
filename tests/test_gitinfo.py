@@ -137,9 +137,10 @@ def test_incoming_cloud_branch_and_merge(remote_pair):
     [inc] = info.incoming
     assert inc["ref"] == "origin/claude/feat-x" and inc["kind"] == "cloud"
     assert inc["count"] == 1 and inc["subjects"] == ["feat: 云端加了 b"]
+    assert inc["behind_head"] == 1                                  # 本地那个 c 它没有
 
     r = G.merge_refs(local, ["origin/claude/feat-x"], push=True)
-    assert r["merged"] == ["origin/claude/feat-x"] and r["failed"] is None
+    assert r["merged"] == ["origin/claude/feat-x"] and r["failed"] == []
     assert r["pushed"] and r["push_error"] is None
     assert (local / "b.txt").read_text() == "cloud\n" and (local / "c.txt").exists()
     msg = git(local, "log", "-1", "--format=%B")
@@ -162,16 +163,17 @@ def test_upstream_fast_forward_counts_as_incoming(remote_pair):
     assert git(local, "log", "-1", "--format=%s").strip() == "别处推到 main"   # 快进，没有合并提交
 
 
-def test_merge_conflict_aborts_and_keeps_earlier(remote_pair):
+def test_merge_conflict_aborts_and_continues(remote_pair):
     _, local, cloud = remote_pair
-    cloud_push(cloud, "claude/ok", {"e.txt": "e\n"}, "ok")
     cloud_push(cloud, "claude/clash", {"a.txt": "cloud\n"}, "clash")
+    cloud_push(cloud, "claude/ok", {"e.txt": "e\n"}, "ok")
     commit(local, "a.txt", "local\n", "本地改 a")
     G.fetch(local)
     head_before = git(local, "rev-parse", "HEAD")
-    r = G.merge_refs(local, ["origin/claude/ok", "origin/claude/clash"])
+    r = G.merge_refs(local, ["origin/claude/clash", "origin/claude/ok"])   # 冲突的在前也不挡后面的
     assert r["merged"] == ["origin/claude/ok"]
-    assert r["failed"]["ref"] == "origin/claude/clash" and r["failed"]["conflicts"] == ["a.txt"]
+    [f] = r["failed"]
+    assert f["ref"] == "origin/claude/clash" and f["conflicts"] == ["a.txt"]
     assert (local / "a.txt").read_text() == "local\n"                   # 冲突那个撤掉了
     assert git(local, "status", "--porcelain") == ""
     assert git(local, "rev-parse", "HEAD") != head_before                 # ok 那个留着
