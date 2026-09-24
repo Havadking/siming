@@ -4,8 +4,8 @@
 带 GIT_OPTIONAL_LOCKS=0——status 顺手刷新索引时会写 index.lock，用户正在终端里 commit 会撞上。
 GitCache 一条后台线程 30s 刷一轮，没人看（90s 没读过）就不跑，见 DESIGN.md 10.1。
 
-动的只有两件（DESIGN.md 11）：隔 10 分钟 `git fetch --prune origin`，和用户点了才跑的 merge_refs——
-Claude 云端会话把代码推到 origin/claude/*，本地分支不知道，一键合进来。
+动的只有三件（DESIGN.md 11、12）：隔 10 分钟 `git fetch --prune origin`，和用户点了才跑的 merge_refs / push_branch——
+Claude 云端会话把代码推到 origin/claude/*，本地分支不知道，一键合进来；本地领先的提交一键推上去。
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ class GitInfo:
     incoming: list[dict] = field(default_factory=list)
     fetched_at: float | None = None   # 面板上次成功 fetch 的时间；没 fetch 过为 None
     fetch_error: str | None = None
+    outgoing: list[str] = field(default_factory=list)   # ahead > 0 时，要推上去的提交标题（最多 8 条，新的在前）
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -187,6 +188,10 @@ def read_git(cwd: Path, git: str | None = None, ignored: dict[str, str] | None =
     if not info.detached and info.commit_at is not None:
         try:
             info.incoming = read_incoming(git, cwd, info.upstream, info.behind, ignored)
+            if info.upstream and info.ahead > 0:
+                code, out = _run(git, cwd, "log", f"-{MAX_SUBJECTS}", "--format=%s", "@{u}..HEAD")
+                if code == 0:
+                    info.outgoing = [ln.strip() for ln in out.splitlines() if ln.strip()]
         except (subprocess.TimeoutExpired, OSError):
             pass
     return info
@@ -274,15 +279,44 @@ def merge_refs(cwd: Path, refs: list[str], *, push: bool = False, git: str | Non
 
     pushed, push_error = False, None
     if push and merged:
-        code, _ = _run(git, cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-        args = ["push", "--quiet"] if code == 0 else ["push", "--quiet", "-u", "origin", branch]
-        try:
-            code, _, err = _run_full(git, cwd, *args, timeout=NET_TIMEOUT)
-            pushed = code == 0
-            push_error = None if pushed else (_last_line(err) or f"push 退出码 {code}")
-        except subprocess.TimeoutExpired:
-            push_error = f"push 超时（{NET_TIMEOUT:.0f}s）"
+        push_error = push_branch(cwd, git=git)
+        pushed = push_error is None
     return {"merged": merged, "failed": failed, "pushed": pushed, "push_error": push_error}
+
+
+def push_branch(cwd: Path, *, git: str | None = None) -> str | None:
+    """把当前分支推到远端。成功返回 None，失败返回一句原因。
+
+    有上游就 `git push`；没有就 `git push -u origin <branch>`（没有 origin 报错）。
+    **从不 --force**：远端有本地没有的提交时 git 会拒绝，翻成「先合并再推」。
+    未提交的改动不管——push 只推提交。
+    """
+    git = git or git_exe()
+    if git is None:
+        return "git 没装"
+    code, head = _run(git, cwd, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = head.strip()
+    if code != 0 or not branch:
+        return "当前是 detached HEAD，没有分支可推"
+    code, _ = _run(git, cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if code == 0:
+        args = ["push", "--quiet"]
+    else:
+        code, out = _run(git, cwd, "remote")
+        if code != 0 or "origin" not in out.split():
+            return "没有 origin 远端，不知道推到哪"
+        args = ["push", "--quiet", "-u", "origin", branch]
+    try:
+        code, _, err = _run_full(git, cwd, *args, timeout=NET_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return f"push 超时（{NET_TIMEOUT:.0f}s）"
+    except OSError as e:
+        return f"git 跑不起来：{e}"
+    if code == 0:
+        return None
+    if "non-fast-forward" in err or "fetch first" in err or "[rejected]" in err:
+        return "远端有本地没有的提交，被拒绝了——先把云端改动合进来再推"
+    return _last_line(err) or f"push 退出码 {code}"
 
 
 class GitCache:
@@ -362,6 +396,10 @@ class GitCache:
         """MergeError 原样往外抛。"""
         with self._op_lock(cwd):
             return merge_refs(cwd, refs, push=push, git=self._git)
+
+    def push(self, cwd: Path) -> str | None:
+        with self._op_lock(cwd):
+            return push_branch(cwd, git=self._git)
 
     def ignore(self, cwd: Path, ref: str, sha: str) -> None:
         with self._lock:

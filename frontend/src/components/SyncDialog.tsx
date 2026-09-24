@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, GitMerge, Loader2, RefreshCw, Terminal, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CloudUpload, GitMerge, Loader2, RefreshCw, Terminal, X } from 'lucide-react'
 import { api, type Incoming, type MergeResult, type Project } from '../api'
 import { ago } from '../lib/format'
 import { Button } from './ui'
@@ -33,7 +33,8 @@ export function SyncDialog({ p, onClose, onChanged, onRestart }: {
   const g = p.git
   const incoming = g?.incoming ?? []
   const live = LIVE.has(p.status) && p.status !== 'external'
-  const [busy, setBusy] = useState<'fetch' | 'merge' | null>(null)
+  const [busy, setBusy] = useState<'fetch' | 'merge' | 'push' | null>(null)
+  const [pushNote, setPushNote] = useState<{ text: string; ok?: boolean } | null>(null)
   const [fetchErr, setFetchErr] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [result, setResult] = useState<MergeResult | null>(null)
@@ -83,6 +84,19 @@ export function SyncDialog({ p, onClose, onChanged, onRestart }: {
     }
   }
 
+  const doPush = async () => {
+    setBusy('push'); setPushNote(null)
+    try {
+      await api.gitPush(p.id)
+      setPushNote({ text: '已推送', ok: true })
+      onChanged()
+    } catch (e) {
+      setPushNote({ text: `推送失败：${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const ignore = async (ref: string, sha: string) => {
     try { await api.gitIgnore(p.id, ref, sha); onChanged() } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
   }
@@ -108,7 +122,16 @@ export function SyncDialog({ p, onClose, onChanged, onRestart }: {
         <div className="mbody">
           <div className="sync-meta mono">
             <span>当前分支 <b>{g?.branch ?? '?'}</b></span>
-            {g && g.ahead > 0 && <span className="mute">本地领先 {g.upstream ?? '上游'} {g.ahead} 个</span>}
+            {g && g.ahead > 0 && (
+              <span className="mute">
+                本地领先 {g.upstream ?? '上游'} {g.ahead} 个
+                <button type="button" className="linkbtn" disabled={!!busy} onClick={() => { void doPush() }}
+                  title={['推送到远端（不强推）', ...g.outgoing.map((s) => `· ${s}`)].join('\n')}>
+                  {busy === 'push' ? <Loader2 className="spin" /> : <CloudUpload />}推送
+                </button>
+              </span>
+            )}
+            {pushNote && <span className={pushNote.ok ? 'ok-text' : 'bad'}>{pushNote.text}</span>}
             <span className="grow" />
             {fetchedLine}
           </div>

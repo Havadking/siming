@@ -326,7 +326,7 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    # ----- git：拉取 / 合并云端分支（DESIGN.md 11）-----
+    # ----- git：拉取 / 合并云端分支 / 推送（DESIGN.md 11、12）-----
 
     def _repo(project_id: str) -> Path:
         p = state.project(project_id)
@@ -351,6 +351,14 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
         except MergeError as e:
             raise HTTPException(409, str(e)) from e
         return {**result, "git": state.git.refresh_one(cwd)}
+
+    @app.post("/api/projects/{project_id}/git/push")
+    def git_push(project_id: str):
+        cwd = _repo(project_id)
+        err = state.git.push(cwd)
+        if err:
+            raise HTTPException(409, err)
+        return {"git": state.git.refresh_one(cwd)}
 
     @app.post("/api/projects/{project_id}/git/ignore")
     def git_ignore(project_id: str, body: dict = Body(...)):

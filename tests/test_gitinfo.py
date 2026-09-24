@@ -218,3 +218,47 @@ def test_fetch_prunes_deleted_cloud_branch(remote_pair):
     git(cloud, "push", "-q", "origin", "--delete", "claude/gone")
     G.fetch(local)
     assert read_git(local).incoming == []
+
+
+# ----- 一键推送（DESIGN.md 12）-----
+
+def test_outgoing_and_push(remote_pair):
+    origin, local, _ = remote_pair
+    commit(local, "p.txt", "1", "feat: 要推的第一个")
+    commit(local, "q.txt", "2", "fix: 要推的第二个")
+    info = read_git(local)
+    assert info.ahead == 2 and info.outgoing == ["fix: 要推的第二个", "feat: 要推的第一个"]
+    assert G.push_branch(local) is None
+    info = read_git(local)
+    assert info.ahead == 0 and info.outgoing == []
+    assert git(origin, "rev-parse", "main") == git(local, "rev-parse", "HEAD")
+
+
+def test_push_new_branch_sets_upstream(remote_pair):
+    origin, local, _ = remote_pair
+    git(local, "checkout", "-q", "-b", "topic")
+    commit(local, "t.txt", "t", "topic")
+    assert read_git(local).upstream is None
+    assert G.push_branch(local) is None
+    assert read_git(local).upstream == "origin/topic"
+    assert git(origin, "rev-parse", "topic") == git(local, "rev-parse", "HEAD")
+
+
+def test_push_rejected_when_remote_ahead_never_forces(remote_pair):
+    origin, local, cloud = remote_pair
+    git(cloud, "checkout", "-q", "main")
+    commit(cloud, "r.txt", "remote", "别处推的")
+    git(cloud, "push", "-q", "origin", "main")
+    commit(local, "l.txt", "local", "本地的")
+    remote_head = git(origin, "rev-parse", "main")
+    err = G.push_branch(local)
+    assert err and "先把云端改动合进来" in err
+    assert git(origin, "rev-parse", "main") == remote_head          # 远端没被动
+
+
+def test_push_errors(tmp_path):
+    d = repo(tmp_path)
+    commit(d, "a.txt", "1", "x")
+    assert "没有 origin" in G.push_branch(d)
+    git(d, "checkout", "-q", "--detach")
+    assert "detached" in G.push_branch(d)

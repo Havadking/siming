@@ -53,6 +53,7 @@ export interface GitInfo {
   incoming: Incoming[]            // 远端有、本地还没合进来的：上游落后 + origin/claude/* 云端分支
   fetched_at: number | null       // 面板上次成功 fetch 的时间
   fetch_error: string | null
+  outgoing: string[]              // ahead > 0 时要推上去的提交标题（最多 8 条，新的在前）
 }
 
 export interface Incoming {
@@ -149,6 +150,7 @@ export const api = {
   // 云端分支：拉取 / 合并 / 忽略
   gitFetch: (id: string) => post(`/api/projects/${id}/git/fetch`) as Promise<{ error: string | null; git: GitInfo | null }>,
   gitMerge: (id: string, refs: string[], push: boolean) => json<MergeResult>(`/api/projects/${id}/git/merge`, 'POST', { refs, push }),
+  gitPush: (id: string) => post(`/api/projects/${id}/git/push`) as Promise<{ git: GitInfo | null }>,
   gitIgnore: (id: string, ref: string, sha: string) => json<{ git: GitInfo | null }>(`/api/projects/${id}/git/ignore`, 'POST', { ref, sha }),
   // 面板自己
   panel: () => req<{ pid: number; started_at: number; version: string }>('/api/panel'),

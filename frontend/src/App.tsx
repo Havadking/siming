@@ -3,7 +3,7 @@ import { AlertTriangle, Moon, Play, Plus, RefreshCw, Square, Sun } from 'lucide-
 import { api, type Project } from './api'
 import { GroupHeader, NewGroupRow } from './components/GroupHeader'
 import { LogDrawer } from './components/LogDrawer'
-import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard'
+import { ProjectCard, type Action, type CardNote, type MenuKey } from './components/ProjectCard'
 import { ProjectDialog } from './components/ProjectDialog'
 import { SyncDialog } from './components/SyncDialog'
 // import { ToolsDropdown } from './components/ToolsDropdown'
@@ -58,7 +58,8 @@ export default function App() {
   const { dark, toggle } = useTheme()
   const { data, error: pollError, refresh } = usePolling(api.projects, 2000)
   const [pending, setPending] = useState<Record<string, Action | null>>({})
-  const [cardErr, setCardErr] = useState<Record<string, string | null>>({})
+  const [cardNote, setCardNote] = useState<Record<string, CardNote | null>>({})
+  const [pushing, setPushing] = useState<Record<string, boolean>>({})
   const [logId, setLogId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<{ editing: Project | null } | null>(null)
   const [syncId, setSyncId] = useState<string | null>(null)
@@ -102,11 +103,38 @@ export default function App() {
     })
   }, [data])
 
-  const showErr = useCallback((id: string, msg: string) => {
-    setCardErr((m) => ({ ...m, [id]: msg }))
+  const showNote = useCallback((id: string, text: string, ok = false) => {
+    setCardNote((m) => ({ ...m, [id]: { text, ok } }))
     if (errTimers.current[id]) clearTimeout(errTimers.current[id])
-    errTimers.current[id] = window.setTimeout(() => setCardErr((m) => ({ ...m, [id]: null })), 5000)
+    errTimers.current[id] = window.setTimeout(() => setCardNote((m) => ({ ...m, [id]: null })), ok ? 4000 : 8000)
   }, [])
+  const showErr = useCallback((id: string, msg: string) => showNote(id, msg), [showNote])
+
+  /** 一键推送：先确认（列出要推的提交），不强推；被拒绝时后端会说「先合并再推」 */
+  const push = useCallback(async (p: Project) => {
+    const g = p.git
+    if (!g || g.detached) return
+    const target = g.upstream ?? `origin/${g.branch}`
+    const lines = [
+      g.upstream
+        ? (g.ahead > 0 ? `把 ${g.branch} 的 ${g.ahead} 个提交推送到 ${target}？` : `${g.branch} 没有领先 ${target} 的提交，仍然推送一次？`)
+        : `${g.branch} 还没推送过，推送到 ${target} 并设为上游？`,
+      ...(g.outgoing.length ? ['', ...g.outgoing.map((s) => `· ${s}`), ...(g.ahead > g.outgoing.length ? [`…还有 ${g.ahead - g.outgoing.length} 个`] : [])] : []),
+      ...(g.dirty > 0 ? ['', `注意：有 ${g.dirty} 处未提交的改动，不会被推送。`] : []),
+      ...(g.behind > 0 ? ['', `远端还有 ${g.behind} 个提交本地没有，多半会被拒绝——先合并。`] : []),
+    ]
+    if (!confirm(lines.join('\n'))) return
+    setPushing((m) => ({ ...m, [p.id]: true }))
+    try {
+      await api.gitPush(p.id)
+      showNote(p.id, `已推送到 ${target}`, true)
+      void refresh()
+    } catch (e) {
+      showErr(p.id, `推送失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setPushing((m) => ({ ...m, [p.id]: false }))
+    }
+  }, [refresh, showNote, showErr])
 
   const act = useCallback(async (id: string, a: Action) => {
     setPending((m) => ({ ...m, [id]: a }))
@@ -136,12 +164,13 @@ export default function App() {
       else if (k === 'logfile') await api.openLogFile(p.id)
       else if (k === 'edit') setDialog({ editing: p })
       else if (k === 'sync') setSyncId(p.id)
+      else if (k === 'push') await push(p)
       else if (k === 'delete') await remove(p)
       else await navigator.clipboard.writeText(`cd ${p.cwd}\n${p.cmd}`)
     } catch (e) {
       showErr(p.id, e instanceof Error ? e.message : String(e))
     }
-  }, [showErr, remove])
+  }, [showErr, remove, push])
 
   // ----- 拖拽排序 -----
   const dragStart = useCallback((id: string) => {
@@ -353,7 +382,7 @@ export default function App() {
               for (const p of ps) {
                 items.push(
                   <ProjectCard key={p.id} p={p} now={now} history={history.get(p.id)}
-                    pending={pending[p.id] ?? null} error={cardErr[p.id] ?? null}
+                    pending={pending[p.id] ?? null} note={cardNote[p.id] ?? null} pushing={!!pushing[p.id]}
                     onAction={(a) => { void act(p.id, a) }}
                     onLogs={() => setLogId(p.id)}
                     onMenu={(k) => { void menu(p, k) }}

@@ -144,11 +144,15 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .proj .l4 .branch.detached { color: var(--warn); }
 .proj .l4 .dirty { color: var(--warn); }
 .proj .l4 .ab { color: var(--info); }
+.proj .l4 .outgoing { height: 18px; padding: 0 5px; border-radius: 5px; font: inherit; background: var(--info-bg); }
+.proj .l4 .outgoing:hover:not(:disabled) { filter: brightness(.95); text-decoration: underline; }
+.proj .l4 .outgoing:disabled { opacity: .7; }
 .proj .l4 .bad { color: var(--bad); }
 .proj .l4 .incoming { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; border-radius: 5px; background: var(--accent-bg); color: var(--accent-ink); font: inherit; font-weight: 500; }
 .proj .l4 .incoming svg { color: var(--accent-ink); }
 .proj .l4 .incoming:hover { background: var(--accent-line); }
 .proj .act-err { margin: 2px 0 0 18px; color: var(--bad); font-size: 12px; }
+.proj .act-ok { margin: 2px 0 0 18px; color: var(--ok); font-size: 12px; }
 .proj .actions { display: flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 8px; }   /* 贴底：没有 git 行的卡片按钮也和邻居对齐 */
 .proj .hint { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; color: var(--mute); box-shadow: var(--shadow); z-index: 6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .proj:hover .hint { display: block; }
@@ -218,6 +222,8 @@ code { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-si
 .sync-meta b { font-weight: 600; color: var(--ink); }
 .sync-meta > span { display: inline-flex; align-items: center; gap: 4px; }
 .sync-meta svg { width: 12px; height: 12px; }
+.sync-meta .ok-text { color: var(--ok); }
+.sync-meta .linkbtn svg { width: 12px; height: 12px; }
 .sync-meta .bad { color: var(--bad); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 28px 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--mute); font-size: 13px; }
 .sync-empty svg { width: 16px; height: 16px; }
