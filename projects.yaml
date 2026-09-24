@@ -79,6 +79,17 @@ projects:
       PYTHONUTF8: "1"
     group: 常用
 
+  - id: hongyan
+    name: 鸿雁
+    cwd: E:/personal/projects/ayugram-autotyper
+    cmd: uv run --no-sync hongyan serve --no-browser   # 按剧本往 AyuGram 当前聊天打字发消息；起着时占用全局急停热键 Ctrl+Alt+End
+    port: 9400
+    autostart: false                        # 用的时候再在面板上点启动
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: suishi
     name: 随拾
