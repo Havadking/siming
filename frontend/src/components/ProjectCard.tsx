@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, GripVertical, Pencil, Play, RotateCw, ScrollText, Square, Terminal, Trash2 } from 'lucide-react'
+import { CloudDownload, Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, GripVertical, Pencil, Play, RotateCw, ScrollText, Square, Terminal, Trash2 } from 'lucide-react'
 import type { Project } from '../api'
 import type { History } from '../hooks/useHistory'
 import { ago, bytes, duration } from '../lib/format'
@@ -11,7 +11,7 @@ export type Action = 'start' | 'stop' | 'restart'
 
 const PENDING_LABEL: Record<Action, string> = { start: '正在启动…', stop: '正在停止…', restart: '正在重启…' }
 
-export type MenuKey = 'folder' | 'terminal' | 'editor' | 'copy' | 'logfile' | 'edit' | 'delete'
+export type MenuKey = 'folder' | 'terminal' | 'editor' | 'copy' | 'logfile' | 'edit' | 'delete' | 'sync'
 
 export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, history, drag }: {
   p: Project
@@ -81,6 +81,7 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
     : p.exit_code != null && s === 'stopped' ? `上次退出 ${p.exit_code}` : ' '
 
   const g = p.git
+  const incomingN = g?.incoming.reduce((n, i) => n + i.count, 0) ?? 0
 
   return (
     <div ref={el} className={`card proj${isErr ? ' cfg-err' : ''}${pending ? ' busy' : ''}${drag?.dragging ? ' dragging' : ''}`}
@@ -107,6 +108,13 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
             <span className="ab" title={g.upstream ? `相对 ${g.upstream}` : undefined}>
               {g.ahead > 0 && `↑${g.ahead}`}{g.behind > 0 && `↓${g.behind}`}
             </span>
+          )}
+          {g.incoming.length > 0 && (
+            <button type="button" className="incoming" onClick={() => onMenu('sync')}
+              title={[`GitHub 上有 ${incomingN} 个提交还没合进本地，点开合并`,
+                ...g.incoming.map((i) => `${i.ref.replace(/^origin\//, '')}：${i.subjects[0] ?? ''}`)].join('\n')}>
+              <CloudDownload />{incomingN}
+            </button>
           )}
           {g.error
             ? <span className="bad">{g.error}</span>
@@ -146,6 +154,7 @@ export function ProjectCard({ p, pending, error, onAction, onLogs, onMenu, now, 
           { label: '打开目录', icon: <FolderOpen />, onClick: () => onMenu('folder') },
           { label: '在终端打开', icon: <Terminal />, onClick: () => onMenu('terminal') },
           { label: '在 VS Code 打开', icon: <Code2 />, onClick: () => onMenu('editor') },
+          ...(g && !g.error ? [{ label: '同步云端改动…', icon: <CloudDownload />, onClick: () => onMenu('sync') }] : []),
           { label: '打开日志文件', icon: <FileText />, onClick: () => onMenu('logfile') },
           { label: '复制命令', icon: <Copy />, onClick: () => onMenu('copy') },
           { label: '删除', icon: <Trash2 />, danger: true, onClick: () => onMenu('delete') },

@@ -50,6 +50,26 @@ export interface GitInfo {
   commit_at: number | null
   commit_msg: string | null
   error: string | null
+  incoming: Incoming[]            // 远端有、本地还没合进来的：上游落后 + origin/claude/* 云端分支
+  fetched_at: number | null       // 面板上次成功 fetch 的时间
+  fetch_error: string | null
+}
+
+export interface Incoming {
+  ref: string                     // origin/claude/xxx 或上游 origin/main
+  sha: string
+  kind: 'upstream' | 'cloud'
+  count: number                   // 还没进 HEAD 的非合并提交数
+  at: number | null               // 其中最新一条的时间
+  subjects: string[]              // 最多 8 条，新的在前
+}
+
+export interface MergeResult {
+  merged: string[]
+  failed: { ref: string; message: string; conflicts: string[] } | null
+  pushed: boolean
+  push_error: string | null
+  git: GitInfo | null
 }
 
 export interface ProjectsResponse {
@@ -125,6 +145,10 @@ export const api = {
   openTerminal: (id: string) => post(`/api/projects/${id}/open-terminal`),
   openLogFile: (id: string) => post(`/api/projects/${id}/open-log-file`),
   logStreamUrl: (id: string) => `/api/projects/${id}/logs/stream`,
+  // 云端分支：拉取 / 合并 / 忽略
+  gitFetch: (id: string) => post(`/api/projects/${id}/git/fetch`) as Promise<{ error: string | null; git: GitInfo | null }>,
+  gitMerge: (id: string, refs: string[], push: boolean) => json<MergeResult>(`/api/projects/${id}/git/merge`, 'POST', { refs, push }),
+  gitIgnore: (id: string, ref: string, sha: string) => json<{ git: GitInfo | null }>(`/api/projects/${id}/git/ignore`, 'POST', { ref, sha }),
   // 面板自己
   panel: () => req<{ pid: number; started_at: number; version: string }>('/api/panel'),
   restartPanel: () => post('/api/panel/restart') as Promise<{ ok: boolean; pid: number }>,

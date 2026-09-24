@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(G.git_exe() is None, reason="没装 git")
 def git(cwd: Path, *args: str) -> str:
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
            "GIT_CONFIG_NOSYSTEM": "1", "HOME": str(cwd), "PATH": __import__("os").environ["PATH"]}
-    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 def repo(tmp_path: Path) -> Path:
@@ -92,3 +92,127 @@ def test_cache_thread_idle_and_wake(tmp_path, monkeypatch):
         assert c.get(d)["branch"] == "main"
     finally:
         c.stop()
+
+
+# ----- 云端分支：fetch / 待合并 / 一键合并（DESIGN.md 11）-----
+
+def commit(d: Path, name: str, content: str, msg: str) -> None:
+    (d / name).write_text(content, encoding="utf-8")
+    git(d, "add", name)
+    git(d, "commit", "-q", "-m", msg)
+
+
+@pytest.fixture
+def remote_pair(tmp_path, monkeypatch):
+    """origin（裸仓库，当 GitHub）+ local（本机）+ cloud（云端会话的克隆）。"""
+    for k in ("AUTHOR", "COMMITTER"):       # merge_refs 用的是进程环境，合并提交要有身份
+        monkeypatch.setenv(f"GIT_{k}_NAME", "t")
+        monkeypatch.setenv(f"GIT_{k}_EMAIL", "t@x")
+    origin = tmp_path / "origin.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    local = tmp_path / "local"
+    git(tmp_path, "clone", "-q", str(origin), str(local))
+    commit(local, "a.txt", "1\n", "init")
+    git(local, "push", "-q", "-u", "origin", "main")
+    cloud = tmp_path / "cloud"
+    git(tmp_path, "clone", "-q", str(origin), str(cloud))
+    return origin, local, cloud
+
+
+def cloud_push(cloud: Path, branch: str, files: dict[str, str], msg: str) -> None:
+    git(cloud, "checkout", "-q", "-B", branch, "origin/main")
+    for name, content in files.items():
+        commit(cloud, name, content, msg)
+    git(cloud, "push", "-q", "-f", "origin", branch)
+
+
+def test_incoming_cloud_branch_and_merge(remote_pair):
+    origin, local, cloud = remote_pair
+    cloud_push(cloud, "claude/feat-x", {"b.txt": "cloud\n"}, "feat: 云端加了 b")
+    commit(local, "c.txt", "local\n", "fix: 本地改了 c")          # 本地也往前走了一步：分叉
+
+    assert read_git(local).incoming == []                         # 没 fetch 不知道
+    assert G.fetch(local) is None
+    info = read_git(local)
+    [inc] = info.incoming
+    assert inc["ref"] == "origin/claude/feat-x" and inc["kind"] == "cloud"
+    assert inc["count"] == 1 and inc["subjects"] == ["feat: 云端加了 b"]
+
+    r = G.merge_refs(local, ["origin/claude/feat-x"], push=True)
+    assert r["merged"] == ["origin/claude/feat-x"] and r["failed"] is None
+    assert r["pushed"] and r["push_error"] is None
+    assert (local / "b.txt").read_text() == "cloud\n" and (local / "c.txt").exists()
+    msg = git(local, "log", "-1", "--format=%B")
+    assert msg.startswith("合并云端分支 claude/feat-x") and "- feat: 云端加了 b" in msg
+    assert read_git(local).incoming == []
+    assert git(origin, "rev-parse", "main") == git(local, "rev-parse", "HEAD")
+
+
+def test_upstream_fast_forward_counts_as_incoming(remote_pair):
+    origin, local, cloud = remote_pair
+    git(cloud, "checkout", "-q", "main")
+    commit(cloud, "d.txt", "x", "别处推到 main")
+    git(cloud, "push", "-q", "origin", "main")
+    G.fetch(local)
+    info = read_git(local)
+    assert info.behind == 1
+    assert [(i["ref"], i["kind"]) for i in info.incoming] == [("origin/main", "upstream")]
+    r = G.merge_refs(local, ["origin/main"])
+    assert r["merged"] == ["origin/main"]
+    assert git(local, "log", "-1", "--format=%s").strip() == "别处推到 main"   # 快进，没有合并提交
+
+
+def test_merge_conflict_aborts_and_keeps_earlier(remote_pair):
+    _, local, cloud = remote_pair
+    cloud_push(cloud, "claude/ok", {"e.txt": "e\n"}, "ok")
+    cloud_push(cloud, "claude/clash", {"a.txt": "cloud\n"}, "clash")
+    commit(local, "a.txt", "local\n", "本地改 a")
+    G.fetch(local)
+    head_before = git(local, "rev-parse", "HEAD")
+    r = G.merge_refs(local, ["origin/claude/ok", "origin/claude/clash"])
+    assert r["merged"] == ["origin/claude/ok"]
+    assert r["failed"]["ref"] == "origin/claude/clash" and r["failed"]["conflicts"] == ["a.txt"]
+    assert (local / "a.txt").read_text() == "local\n"                   # 冲突那个撤掉了
+    assert git(local, "status", "--porcelain") == ""
+    assert git(local, "rev-parse", "HEAD") != head_before                 # ok 那个留着
+    assert [i["ref"] for i in read_git(local).incoming] == ["origin/claude/clash"]
+
+
+def test_merge_refuses_dirty_and_unknown(remote_pair):
+    _, local, _ = remote_pair
+    (local / "a.txt").write_text("改了没提交")
+    with pytest.raises(G.MergeError, match="没提交"):
+        G.merge_refs(local, ["origin/main"])
+    git(local, "checkout", "-q", "--", "a.txt")
+    (local / "untracked.txt").write_text("未跟踪的不拦")
+    with pytest.raises(G.MergeError, match="不认识"):
+        G.merge_refs(local, ["origin/nope"])
+
+
+def test_ignore_until_new_commit(remote_pair, tmp_path):
+    _, local, cloud = remote_pair
+    cloud_push(cloud, "claude/stale", {"s.txt": "1"}, "旧的")
+    c = GitCache(state_dir=tmp_path / "state")
+    assert c.fetch(local) is None
+    [inc] = c.refresh_one(local)["incoming"]
+    assert c.refresh_one(local)["fetched_at"] is not None
+    c.ignore(local, inc["ref"], inc["sha"])
+    assert c.refresh_one(local)["incoming"] == []
+    assert GitCache(state_dir=tmp_path / "state").refresh_one(local)["incoming"] == []   # 落盘了
+
+    git(cloud, "checkout", "-q", "claude/stale")
+    commit(cloud, "s.txt", "2", "又推了一个")
+    git(cloud, "push", "-q", "origin", "claude/stale")
+    c.fetch(local)
+    [inc] = c.refresh_one(local)["incoming"]
+    assert inc["count"] == 2
+
+
+def test_fetch_prunes_deleted_cloud_branch(remote_pair):
+    _, local, cloud = remote_pair
+    cloud_push(cloud, "claude/gone", {"g.txt": "1"}, "g")
+    G.fetch(local)
+    assert read_git(local).incoming
+    git(cloud, "push", "-q", "origin", "--delete", "claude/gone")
+    G.fetch(local)
+    assert read_git(local).incoming == []

@@ -197,7 +197,7 @@ devpanel/
     config.py               # 读、校验、热重载
     supervisor.py           # Runtime + 状态机 + 认领
     logs.py                 # 文件滚动 + 环形缓冲 + SSE 订阅
-    gitinfo.py              # v0.3：每个 cwd 的 git 分支 / 未提交 / 最近提交，后台缓存
+    gitinfo.py              # v0.3：每个 cwd 的 git 分支 / 未提交 / 最近提交，后台缓存；第 11 节：fetch + 合并云端分支
     health.py               # v0.3：健康检查 URL 的 HTTP 探测
     api.py                  # 路由 + 静态文件
     web/dist/               # 前端构建产物，随包走，跑面板不需要 Node
@@ -486,5 +486,65 @@ git log -1 --format=%ct%x1f%s          → 最近一次提交时间 + 标题
 ### 10.5 不做
 
 - git 操作（commit / pull / 切分支）。面板只看不动，要动去终端——所以有 10.2。
+  （后来开了一个口子：把云端分支合进来，见第 11 节。commit / 切分支仍然不做。）
 - 健康检查失败自动重启。「进程活着但不健康」大多是配置错、依赖没起，重启没用，标黄让人看到就行。
 - 历史曲线落盘。
+
+---
+
+## 11. 合并云端改动
+
+用 Claude 云端会话（claude.ai/code）写代码时，代码直接推到 GitHub 的 `claude/<名字>` 分支，
+本地 main 不知道；得记着去终端 `git fetch`、`git merge origin/claude/…`。谛听就是这样：本地 main 自己往前
+走了一个提交，云端的「我的评论」在 `origin/claude/modest-darwin-y2j841` 上，两边分叉。面板替你盯着、一键合进来。
+
+### 11.1 看：哪些还没合进来
+
+`GitInfo` 多三个字段：`incoming`、`fetched_at`、`fetch_error`。`incoming` 每项一个远端分支：
+
+```json
+{"ref": "origin/claude/modest-darwin-y2j841", "sha": "bdc3135…", "kind": "cloud",
+ "count": 1, "at": 1758697666, "subjects": ["feat: 新增「我的评论」页…"]}
+```
+
+- `kind: "upstream"`：当前分支的上游落后（`behind > 0`）时算一条，别处推到 main 的也能一起拉下来。
+- `kind: "cloud"`：`git for-each-ref --no-merged=HEAD refs/remotes/origin/claude`。只认 `claude/` 前缀——
+  那是云端会话的约定；`feature/*` 这类自己的分支不该被面板催着合。
+- 提交数用 `git log --right-only --cherry-pick --no-merges HEAD...<ref>`：内容已经在本地的（cherry-pick /
+  rebase 过的）不算，一条不剩的分支不列。
+- 只读本地 refs，每 30s 随 git 信息一起刷；新不新看上次 fetch。
+
+**fetch**：后台线程每 10 分钟对所有项目 `git fetch --prune --quiet origin`（4 个并发、60s 超时），同样「没人看就不跑」，
+页面第一次打开时先把本地信息亮出来再 fetch。`--prune` 让 GitHub 上删掉的云端分支在本地也消失。
+没有 `origin` 的仓库跳过。失败（断网、没权限）记在 `fetch_error`，弹窗里显示，不影响其他。
+
+**忽略**：老的、不打算要的云端分支（谛听的 `claude/init-671a6c`）会一直挂着，弹窗里点「忽略」记下
+`{ref: sha}` 到 `state/git_ignored.json`；tip 还是那个 sha 就不列，分支有了新提交会重新出现。
+
+### 11.2 动：一键合并
+
+卡片 git 那行有待合并时多一个粉色小标 `☁ N`（N = 提交数，hover 看每个分支的最新标题），点开或 ⋯「同步云端改动…」
+弹窗，打开时先 fetch 一次。每个分支一行，可勾选、可忽略；下面两个选项（记在 localStorage）：
+
+- **合并后推送到 origin**，默认关。推当前分支，有上游 `git push`，没有 `git push -u origin <branch>`。
+- **合并后重启项目**，默认开，项目在跑时才可选。代码变了不重启不生效。
+
+`POST /api/projects/{id}/git/merge {refs, push}` → `merge_refs`：
+
+1. 前置检查，不过就 409、什么都不动：不是 detached；没有进行中的 merge / rebase / cherry-pick；
+   **已跟踪文件没有未提交改动**（未跟踪的不管——真会被覆盖时 git 自己拒绝）。不自动 stash：
+   stash pop 冲突比合并冲突更难收拾。
+2. 按上游在前、云端分支从旧到新，逐个 `git merge --no-edit -m <消息> refs/remotes/<ref>`：
+   能快进就快进，分叉了就生成合并提交，消息是「合并云端分支 claude/xxx」+ 每个提交标题一行。
+3. 某个分支冲突：记下冲突文件（`diff --diff-filter=U`），`merge --abort` 回到合它之前，**停下不合后面的**；
+   已经合成功的保留。弹窗里列出冲突文件，给「在终端打开」——冲突让人或本地 Claude 来解，面板不碰。
+
+同一个 cwd 的 fetch 和 merge 用一把锁串起来，后台 fetch 不会和手点的合并撞上。
+
+其他接口：`POST …/git/fetch`（立即 fetch 并刷新这一个项目）、`POST …/git/ignore {ref, sha}`。
+
+### 11.3 不做
+
+- rebase。合并提交保留了「这是从云端来的」这件事，也不改写本地已有的提交。
+- 自动合并。fetch 是自动的，合并必须点——代码进工作区是用户的决定。
+- 合并后删远端分支。云端会话可能还在往上推；GitHub 上的分支让用户自己清。

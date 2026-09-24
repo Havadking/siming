@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from . import __version__, yamledit
 from .config import Config, ConfigWatcher, Project, Tool, append_tool_to_yaml, validate_raw
 from .detect import detect
-from .gitinfo import GitCache
+from .gitinfo import GitCache, MergeError
 from .logs import LogManager
 from .pick import pick_folder, pick_html_file
 from .supervisor import ActionError, Supervisor
@@ -31,7 +31,7 @@ class PanelState:
         cfg = self.watcher.current()
         self.logs = LogManager(cfg.base_dir / "logs")
         self.supervisor = Supervisor(cfg.base_dir / "state", self.logs)
-        self.git = GitCache()
+        self.git = GitCache(state_dir=cfg.base_dir / "state")
 
     def start_background(self) -> None:
         """v0.3 的两条后台线程：git 信息 30s 一轮（没人看不跑）、健康检查 2s 一轮。"""
@@ -325,6 +325,41 @@ def create_app(config_path: Path, *, autostart: bool = True) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # ----- git：拉取 / 合并云端分支（DESIGN.md 11）-----
+
+    def _repo(project_id: str) -> Path:
+        p = state.project(project_id)
+        if not p.cwd.is_dir():
+            raise HTTPException(404, f"目录不存在：{p.cwd}")
+        return p.cwd
+
+    @app.post("/api/projects/{project_id}/git/fetch")
+    def git_fetch(project_id: str):
+        cwd = _repo(project_id)
+        err = state.git.fetch(cwd)
+        return {"error": err, "git": state.git.refresh_one(cwd)}
+
+    @app.post("/api/projects/{project_id}/git/merge")
+    def git_merge(project_id: str, body: dict = Body(...)):
+        cwd = _repo(project_id)
+        refs = body.get("refs")
+        if not isinstance(refs, list) or not refs or not all(isinstance(r, str) and r for r in refs):
+            raise HTTPException(400, "refs 要是非空的分支名列表")
+        try:
+            result = state.git.merge(cwd, refs, push=bool(body.get("push")))
+        except MergeError as e:
+            raise HTTPException(409, str(e)) from e
+        return {**result, "git": state.git.refresh_one(cwd)}
+
+    @app.post("/api/projects/{project_id}/git/ignore")
+    def git_ignore(project_id: str, body: dict = Body(...)):
+        cwd = _repo(project_id)
+        ref, sha = body.get("ref"), body.get("sha")
+        if not isinstance(ref, str) or not isinstance(sha, str) or not ref or not sha:
+            raise HTTPException(400, "要 ref 和 sha")
+        state.git.ignore(cwd, ref, sha)
+        return {"git": state.git.refresh_one(cwd)}
 
     # ----- 打开 -----
 

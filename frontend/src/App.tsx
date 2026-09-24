@@ -5,6 +5,7 @@ import { GroupHeader, NewGroupRow } from './components/GroupHeader'
 import { LogDrawer } from './components/LogDrawer'
 import { ProjectCard, type Action, type MenuKey } from './components/ProjectCard'
 import { ProjectDialog } from './components/ProjectDialog'
+import { SyncDialog } from './components/SyncDialog'
 // import { ToolsDropdown } from './components/ToolsDropdown'
 import { Button } from './components/ui'
 import { useHistory } from './hooks/useHistory'
@@ -60,6 +61,7 @@ export default function App() {
   const [cardErr, setCardErr] = useState<Record<string, string | null>>({})
   const [logId, setLogId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<{ editing: Project | null } | null>(null)
+  const [syncId, setSyncId] = useState<string | null>(null)
   const { collapsed, toggle: toggleGroup } = useCollapsed()
   // 拖拽中：本地顺序覆盖服务端顺序，松手后写回
   const [dragId, setDragId] = useState<string | null>(null)
@@ -133,6 +135,7 @@ export default function App() {
       else if (k === 'editor') await api.openEditor(p.id)
       else if (k === 'logfile') await api.openLogFile(p.id)
       else if (k === 'edit') setDialog({ editing: p })
+      else if (k === 'sync') setSyncId(p.id)
       else if (k === 'delete') await remove(p)
       else await navigator.clipboard.writeText(`cd ${p.cwd}\n${p.cmd}`)
     } catch (e) {
@@ -280,6 +283,8 @@ export default function App() {
   }, [groupOp])
 
   const logProject = logId ? projects.find((p) => p.id === logId) ?? null : null
+  const syncProject = syncId ? projects.find((p) => p.id === syncId) ?? null : null
+  const refreshNow = useCallback(() => { void refresh() }, [refresh])
   useEffect(() => { if (logId && data && !logProject) setLogId(null) }, [logId, data, logProject])
 
   return (
@@ -368,6 +373,10 @@ export default function App() {
       </main>
 
       {logProject && <LogDrawer id={logProject.id} name={logProject.name} onClose={() => setLogId(null)} />}
+      {syncProject && (
+        <SyncDialog p={syncProject} onClose={() => setSyncId(null)} onChanged={refreshNow}
+          onRestart={() => { void act(syncProject.id, 'restart') }} />
+      )}
       {dialog && (
         <ProjectDialog editing={dialog.editing} groups={groupNames}
           onClose={() => setDialog(null)}
