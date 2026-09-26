@@ -31,6 +31,7 @@ class Project:
     restart: str = "never"          # on-failure | never
     env: dict[str, str] = field(default_factory=dict)
     group: str | None = None
+    desc: str | None = None                         # 一句话用途，显示在卡片名字下面
     env_file: Path | None = None                    # KEY=VALUE 文件，spawn 时读；放密码用，不进 git
     url_pattern: re.Pattern[str] | None = None      # 在 stdout 里匹配，捕获组 1 当「打开」链接（带 token 的地址）
     health: str | None = None                       # 健康检查：相对端口的路径（/api/health）或完整 URL
@@ -58,6 +59,7 @@ class Project:
             "restart": self.restart,
             "env": self.env,
             "group": self.group,
+            "desc": self.desc,
             "env_file": str(self.env_file) if self.env_file else None,
             "url_pattern": self.url_pattern.pattern if self.url_pattern else None,
             "health": self.health,
@@ -186,6 +188,7 @@ def _parse_project(raw: dict, panel_port: int) -> Project:
         id=pid, name=name, cwd=cwd, cmd=cmd, port=int(port) if port is not None else None,
         url=raw.get("url"), autostart=bool(raw.get("autostart", False)),
         restart=str(raw.get("restart", "never")), env=env, group=raw.get("group"),
+        desc=(str(raw["desc"]).strip() or None) if raw.get("desc") else None,
     )
     problems: list[str] = []
     if not pid or not ID_RE.match(pid):
@@ -402,7 +405,7 @@ def append_tool_to_yaml(config_path: Path, name: str, file_str: str, desc: str |
     return _parse_tool({"id": final_id, "name": name, "file": file_str, "desc": desc}, config_path.parent)
 
 
-KNOWN_KEYS = ("id", "name", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "health", "env_file", "env")
+KNOWN_KEYS = ("id", "name", "desc", "cwd", "cmd", "port", "group", "autostart", "restart", "url", "url_pattern", "health", "env_file", "env")
 
 
 def validate_raw(raw: dict, cfg: Config, *, editing: str | None = None) -> tuple[list[str], list[str]]:

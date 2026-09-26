@@ -4,13 +4,13 @@ import { api, type Detected, type Project, type ProjectForm, type Validation } f
 import { Button } from './ui'
 
 const EMPTY: ProjectForm = {
-  id: '', name: '', cwd: '', cmd: '', port: '', group: '',
+  id: '', name: '', desc: '', cwd: '', cmd: '', port: '', group: '',
   autostart: false, restart: 'never', url: '', url_pattern: '', health: '', env_file: '', env: {},
 }
 
 function fromProject(p: Project): ProjectForm {
   return {
-    id: p.id, name: p.name, cwd: p.cwd, cmd: p.cmd, port: p.port == null ? '' : String(p.port),
+    id: p.id, name: p.name, desc: p.desc ?? '', cwd: p.cwd, cmd: p.cmd, port: p.port == null ? '' : String(p.port),
     group: p.group ?? '', autostart: p.autostart, restart: p.restart,
     url: p.url && p.port && p.url === `http://127.0.0.1:${p.port}` ? '' : (p.url ?? ''),
     url_pattern: p.url_pattern ?? '', health: p.health ?? '', env_file: p.env_file ?? '', env: p.env ?? {},
@@ -158,6 +158,10 @@ export function ProjectDialog({ editing, groups, onClose, onSaved }: {
                 onChange={(e) => set('id', e.target.value.toLowerCase())} />
             </label>
           </div>
+
+          <label className="fld"><span>用途</span>
+            <input value={f.desc} placeholder="一句话说清它是干嘛的，显示在卡片名字下面" onChange={(e) => set('desc', e.target.value)} />
+          </label>
 
           <label className="fld"><span>命令</span>
             <input className="mono" value={f.cmd} placeholder="npm run dev" spellCheck={false} onChange={(e) => set('cmd', e.target.value)} />

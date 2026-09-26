@@ -8,6 +8,7 @@ groups: [常用, 监控, AI, 浏览]
 projects:
   - id: vsum
     name: 拾光笺
+    desc: 丢个视频链接，出转写、总结和思维导图
     cwd: E:/personal/projects/video-summarizer
     cmd: uv run --no-sync vsum ui --no-browser
     port: 7860
@@ -19,6 +20,7 @@ projects:
 
   - id: guanlan
     name: 观澜
+    desc: 每天读 Obsidian 新笔记，写一篇每日回顾
     cwd: E:/personal/projects/obsidian-digest
     cmd: uv run --no-sync guanlan serve --no-browser   # 自带定时器：启动时补跑漏掉的日子，凌晨 4 点后处理前一天
     port: 9300
@@ -30,6 +32,7 @@ projects:
 
   - id: diting
     name: 谛听
+    desc: 盯股吧博主，一发帖就弹通知
     cwd: E:/personal/projects/guba-monitor
     cmd: python server.py --no-browser      # 系统 Python 3.9（winotify 装在那里），不是面板的 venv
     port: 17777                             # server.py 被占会自动 +1，那样面板会一直显示「端口没开」，先停掉占用者
@@ -39,6 +42,7 @@ projects:
 
   - id: menshen
     name: 门神
+    desc: 路由器设备上下线监控，记下谁来谁走
     cwd: E:/personal/projects/miwifi
     cmd: npm start
     port: 8080
@@ -49,6 +53,7 @@ projects:
 
   - id: hongyan
     name: 鸿雁
+    desc: 按剧本往 AyuGram 里自动打字发消息
     cwd: E:/personal/projects/ayugram-autotyper
     cmd: uv run --no-sync hongyan serve --no-browser   # 按剧本往 AyuGram 当前聊天打字发消息；起着时占用全局急停热键 Ctrl+Alt+End
     port: 9400
@@ -61,6 +66,7 @@ projects:
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: dsh
     name: DeepSeek Harness
+    desc: DeepSeek 官方的网页版 Agent 工作台
     cwd: E:/personal/projects/DeepSeek Harness
     cmd: npx -y @deepseek-ai/dsh web --no-open --port 3080   # -y：没缓存时别弹「要装吗」卡住；端口钉死，默认也是 3080
     port: 3080
@@ -71,6 +77,7 @@ projects:
 
   - id: rixing
     name: 日省
+    desc: 股票交易日记，记买卖理由、自动汇总盈亏
     cwd: E:/personal/projects/trade-journal
     cmd: uv run --no-sync rixing serve --no-browser
     port: 9100
@@ -82,6 +89,7 @@ projects:
 
   - id: jicui
     name: 集萃
+    desc: 把 Telegram 频道的多次导出合成一条线来翻
     cwd: E:/personal/projects/telegram-export-viewer
     cmd: uv run --no-sync jicui serve --no-browser    # 启动时重扫 AyuGram 导出目录，一两秒
     port: 9200
@@ -93,6 +101,7 @@ projects:
 
   - id: pinzao
     name: 品藻
+    desc: 写真套图封面墙，打分、评语、记看过
     cwd: E:/personal/projects/photo-set-rater
     cmd: uv run --no-sync pinzao serve --no-browser   # 启动时重扫写真目录（不到 1 秒），封面缩略图后台补；data/pinzao.db 存着评分，别删
     port: 9500
@@ -104,6 +113,7 @@ projects:
 
   - id: mixi
     name: 秘戏
+    desc: 本地影片海报墙，打分、记看过
     cwd: E:/personal/projects/av-library
     cmd: uv run --no-sync mixi serve --no-browser     # 扫 D:\videos 的 AV + 待整理，点播放交给 PotPlayer；data/mixi.db 存着评分和看过记录，别删
     port: 9600
@@ -115,6 +125,7 @@ projects:
 
   - id: suishi
     name: 随拾
+    desc: 本地短视频抖音式刷，平板也能看
     cwd: E:/personal/projects/local-video-browser
     cmd: npm run dev                        # node server.mjs：电脑端 localhost:8964 照旧；平板用 http://<本机IP>:8964，共享目录写在 local-video-browser/share.json（改完在这里重启）
     port: 8964

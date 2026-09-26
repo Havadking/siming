@@ -101,6 +101,7 @@ export function ProjectCard({ p, pending, note, pushing, onAction, onLogs, onMen
             : <span className="port mono off">:{p.port}</span>
         )}
       </div>
+      {p.desc && <div className="desc" title={p.desc}>{p.desc}</div>}
       <div className={`l2 ${isErr ? 'bad' : ''}`}>{line2}</div>
       <div className="l3 mono">{line3}</div>
       {g && (

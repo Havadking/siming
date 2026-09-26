@@ -13,6 +13,7 @@ export interface Project {
   restart: 'on-failure' | 'never'
   env: Record<string, string>
   group: string | null
+  desc: string | null              // 一句话用途
   env_file: string | null
   url_pattern: string | null
   health: string | null            // 配置里写的：相对端口的路径或完整 URL
@@ -88,6 +89,7 @@ export interface ProjectForm {
   cmd: string
   port: string
   group: string
+  desc: string
   autostart: boolean
   restart: 'on-failure' | 'never'
   url: string
