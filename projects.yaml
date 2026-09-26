@@ -17,6 +17,17 @@ projects:
       PYTHONUTF8: "1"
     group: 常用
 
+  - id: guanlan
+    name: 观澜
+    cwd: E:/personal/projects/obsidian-digest
+    cmd: uv run --no-sync guanlan serve --no-browser   # 自带定时器：启动时补跑漏掉的日子，凌晨 4 点后处理前一天
+    port: 9300
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 监控
+
   - id: diting
     name: 谛听
     cwd: E:/personal/projects/guba-monitor
@@ -36,6 +47,18 @@ projects:
     env_file: .env                          # 只放 MIWIFI_PASSWORD=…，已在 miwifi/.gitignore 里，不要写进本文件
     group: 监控
 
+  - id: hongyan
+    name: 鸿雁
+    cwd: E:/personal/projects/ayugram-autotyper
+    cmd: uv run --no-sync hongyan serve --no-browser   # 按剧本往 AyuGram 当前聊天打字发消息；起着时占用全局急停热键 Ctrl+Alt+End
+    port: 9400
+    autostart: false                        # 用的时候再在面板上点启动
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: AI
+
+# 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: dsh
     name: DeepSeek Harness
     cwd: E:/personal/projects/DeepSeek Harness
@@ -68,29 +91,28 @@ projects:
       PYTHONUTF8: "1"
     group: 浏览
 
-  - id: guanlan
-    name: 观澜
-    cwd: E:/personal/projects/obsidian-digest
-    cmd: uv run --no-sync guanlan serve --no-browser   # 自带定时器：启动时补跑漏掉的日子，凌晨 4 点后处理前一天
-    port: 9300
+  - id: pinzao
+    name: 品藻
+    cwd: E:/personal/projects/photo-set-rater
+    cmd: uv run --no-sync pinzao serve --no-browser   # 启动时重扫写真目录（不到 1 秒），封面缩略图后台补；data/pinzao.db 存着评分，别删
+    port: 9500
     autostart: true
     restart: on-failure
     env:
       PYTHONUTF8: "1"
-    group: 常用
+    group: 浏览
 
-  - id: hongyan
-    name: 鸿雁
-    cwd: E:/personal/projects/ayugram-autotyper
-    cmd: uv run --no-sync hongyan serve --no-browser   # 按剧本往 AyuGram 当前聊天打字发消息；起着时占用全局急停热键 Ctrl+Alt+End
-    port: 9400
-    autostart: false                        # 用的时候再在面板上点启动
+  - id: mixi
+    name: 秘戏
+    cwd: E:/personal/projects/av-library
+    cmd: uv run --no-sync mixi serve --no-browser     # 扫 D:\videos 的 AV + 待整理，点播放交给 PotPlayer；data/mixi.db 存着评分和看过记录，别删
+    port: 9600
+    autostart: true
     restart: on-failure
     env:
       PYTHONUTF8: "1"
-    group: 常用
+    group: 浏览
 
-# 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: suishi
     name: 随拾
     cwd: E:/personal/projects/local-video-browser
