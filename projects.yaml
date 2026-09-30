@@ -98,6 +98,18 @@ projects:
       PYTHONUTF8: "1"
     group: 常用
 
+  - id: duzhi
+    name: 度支
+    desc: 本地记账：晚上整理，小票截图 AI 填单，分类统计图
+    cwd: E:/personal/projects/ledger
+    cmd: uv run --no-sync duzhi serve --no-browser   # 启动时先备份当天的库；小票识别用观澜的模型；data/ 里的库和小票原图不能重建
+    port: 9800
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: suishi
     name: 随拾
