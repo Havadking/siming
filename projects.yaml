@@ -125,7 +125,7 @@ projects:
     name: 品藻
     desc: 写真套图封面墙，打分、评语、记看过
     cwd: E:/personal/projects/photo-set-rater
-    cmd: uv run --no-sync pinzao serve --no-browser   # 启动时重扫写真目录（不到 1 秒），封面缩略图后台补；data/pinzao.db 存着评分，别删
+    cmd: uv run --no-sync pinzao serve --no-browser --pad   # 启动时重扫写真目录（不到 1 秒），封面缩略图后台补；data/pinzao.db 存着评分，别删。--pad：另开 9501 给平板（库管理 → 平板扫码）
     port: 9500
     autostart: true
     restart: on-failure
