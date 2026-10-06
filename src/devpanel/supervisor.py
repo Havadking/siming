@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -90,6 +91,16 @@ def listening_ports() -> dict[int, int]:
         if c.status == psutil.CONN_LISTEN and c.laddr:
             out.setdefault(c.laddr.port, c.pid or 0)
     return out
+
+
+def port_accepts(port: int, timeout: float = 0.3) -> bool:
+    """真连一下 127.0.0.1:port。系统的 TCP 监听表偶尔会坏（TUN 代理驱动、睡眠唤醒后，
+    netstat/psutil 只吐几行垃圾、连 135/445 都没有），这时靠它兜底，别把在线的项目全标黄。"""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def spawn_detached(argv: list[str], **kw) -> subprocess.Popen:
@@ -479,6 +490,8 @@ class Supervisor:
                 d["uptime"] = now - (rt.started_at or now)
                 rss, cpu = self._tree_metrics(rt.pid)  # type: ignore[arg-type]
                 d["rss"], d["cpu"] = rss, cpu
+                if p.port and not port_open:
+                    port_open = port_accepts(p.port)   # 监听表里没有不一定真没开，见 port_accepts
                 if p.health_url:
                     # 配了健康检查：要这次启动之后的一次通过才算在线，端口通不通不看。
                     # 还没查过（面板刚重启认领回来的老进程）先按端口算，别闪一下黄
