@@ -139,7 +139,22 @@ def _panel_pid(port: int) -> int | None:
     for c in psutil.net_connections("tcp"):
         if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
             return c.pid
-    return None
+    # 系统监听表坏了的时候（见 supervisor.port_accepts）表里找不到，但端口其实通：按命令行找面板进程
+    from .supervisor import port_accepts
+
+    if not port_accepts(port):
+        return None
+    me = os.getpid()
+    found: dict[int, int] = {}   # pid -> ppid
+    for p in psutil.process_iter(["pid", "ppid", "cmdline"]):
+        cmd = p.info["cmdline"] or []
+        if p.info["pid"] != me and "serve" in cmd and any("devpanel" in a for a in cmd):
+            found[p.info["pid"]] = p.info["ppid"]
+    # venv 的 pythonw.exe 是个启动器，真正听端口的是它拉起的子进程：挑父进程也在名单里的那个
+    for pid, ppid in found.items():
+        if ppid in found:
+            return pid
+    return next(iter(found), None)
 
 
 def _wait(pred, timeout: float) -> bool:
