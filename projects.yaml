@@ -110,6 +110,18 @@ projects:
       PYTHONUTF8: "1"
     group: 常用
 
+  - id: woyou
+    name: 卧游
+    desc: 本地观影记录：评分、短评、长评，AI 补全影片信息
+    cwd: E:/personal/projects/movie-journal
+    cmd: uv run --no-sync woyou serve --no-browser   # 启动时先备份当天的库；AI 补全用观澜的模型；data/ 里的库和海报不能重建
+    port: 9900
+    autostart: true
+    restart: on-failure
+    env:
+      PYTHONUTF8: "1"
+    group: 常用
+
 # 本地纯 HTML 单页小工具（免起后台服务，一键直达）
   - id: suishi
     name: 随拾
